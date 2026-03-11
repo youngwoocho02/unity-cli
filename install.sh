@@ -43,8 +43,18 @@ if [ "$OS" = "windows" ]; then
 elif [ -w "$INSTALL_DIR" ]; then
   mv /tmp/unity-cli "$INSTALL_DIR/unity-cli"
 else
-  echo "Installing to ${INSTALL_DIR} (requires sudo)..."
-  sudo mv /tmp/unity-cli "$INSTALL_DIR/unity-cli"
+  # Fallback to ~/.local/bin if no sudo available
+  INSTALL_DIR="$HOME/.local/bin"
+  mkdir -p "$INSTALL_DIR"
+  mv /tmp/unity-cli "$INSTALL_DIR/unity-cli"
+
+  # Add to PATH if not already there
+  case ":$PATH:" in
+    *":$INSTALL_DIR:"*) ;;
+    *) echo "export PATH=\"$INSTALL_DIR:\$PATH\"" >> "$HOME/.profile"
+       export PATH="$INSTALL_DIR:$PATH"
+       echo "Added $INSTALL_DIR to PATH (restart shell or run: source ~/.profile)" ;;
+  esac
 fi
 
 echo "unity-cli installed to ${INSTALL_DIR}/unity-cli${EXT}"
