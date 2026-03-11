@@ -39,7 +39,11 @@ func Execute() error {
 	// Handle help/version before instance discovery
 	switch category {
 	case "help", "--help", "-h":
-		printHelp()
+		if len(subArgs) > 0 {
+			printTopicHelp(subArgs[0])
+		} else {
+			printHelp()
+		}
 		return nil
 	case "version", "--version", "-v":
 		fmt.Println("unity-cli v0.1.0")
@@ -217,10 +221,181 @@ Global Options:
   --json              Output full JSON response (default: data only)
   --timeout <ms>      Request timeout in ms (default: 120000)
 
+Help Topics:
+  help editor              Editor control details
+  help exec                C# execution guide with examples
+  help custom-tools        How to write custom tools
+  help setup               Installation and Unity setup
+
 Notes:
   - Unity must be open with the Connector package installed
   - Multiple Unity instances: use --port or --project to select
   - Custom tools: any [UnityCliTool] class is auto-discovered
   - Run 'tool list' to see all available tools
 `)
+}
+
+func printTopicHelp(topic string) {
+	switch topic {
+	case "editor":
+		fmt.Print(`unity-cli editor — Control Unity Editor state
+
+Subcommands:
+  play [--wait]       Enter play mode
+                      --wait blocks until Unity fully enters play mode.
+                      Without --wait, returns immediately after requesting.
+
+  stop                Exit play mode. No effect if not playing.
+
+  pause               Toggle pause. Only works during play mode.
+                      First call pauses, second call resumes.
+
+  refresh             Refresh AssetDatabase (reimport changed assets).
+    --compile         Also request script compilation and wait for it.
+
+Examples:
+  unity-cli editor play --wait    # Start and wait for play mode
+  unity-cli editor stop           # Stop play mode
+  unity-cli editor refresh --compile  # Recompile scripts
+`)
+	case "exec":
+		fmt.Print(`unity-cli exec — Execute C# code inside Unity Editor
+
+The code runs with full access to UnityEngine, UnityEditor, and all
+loaded assemblies. Single expressions auto-return their result.
+Multi-statement code needs an explicit 'return' statement.
+
+Usage:
+  unity-cli exec "<code>"
+  unity-cli exec "<code>" --usings <namespace1,namespace2>
+
+Examples:
+  # Simple expression (auto-returns)
+  unity-cli exec "Time.time"
+  unity-cli exec "Application.dataPath"
+  unity-cli exec "GameObject.FindObjectsOfType<Camera>().Length"
+
+  # Get active scene
+  unity-cli exec "EditorSceneManager.GetActiveScene().name"
+
+  # Multi-statement (explicit return)
+  unity-cli exec "var go = new GameObject(\"Test\"); return go.name;"
+
+  # With extra using directives
+  unity-cli exec "World.All.Count" --usings Unity.Entities
+
+  # Complex query
+  unity-cli exec "Selection.activeGameObject?.name ?? \"nothing selected\""
+
+Notes:
+  - Strings inside code need escaped quotes: \"text\"
+  - The code is compiled at runtime using CSharpCodeProvider
+  - Compilation errors are returned in the response message
+`)
+	case "custom-tools", "custom", "tools":
+		fmt.Print(`unity-cli custom tools — How to write and use custom tools
+
+Custom tools are C# classes that run inside Unity Editor. The CLI
+discovers them automatically via reflection.
+
+## Writing a Tool
+
+Create a static class with [UnityCliTool] in any Editor assembly:
+
+    using UnityCliConnector;
+    using Newtonsoft.Json.Linq;
+
+    [UnityCliTool(Description = "Spawn an enemy at a position")]
+    public static class SpawnEnemy
+    {
+        public class Parameters
+        {
+            [ToolParameter("X world position", Required = true)]
+            public float X { get; set; }
+
+            [ToolParameter("Y world position", Required = true)]
+            public float Y { get; set; }
+
+            [ToolParameter("Z world position", Required = true)]
+            public float Z { get; set; }
+        }
+
+        public static object HandleCommand(JObject parameters)
+        {
+            float x = parameters["x"]?.Value<float>() ?? 0;
+            float y = parameters["y"]?.Value<float>() ?? 0;
+            float z = parameters["z"]?.Value<float>() ?? 0;
+
+            var prefab = Resources.Load<GameObject>("Enemy");
+            var instance = Object.Instantiate(prefab,
+                new Vector3(x, y, z), Quaternion.identity);
+
+            return new SuccessResponse("Enemy spawned", new {
+                name = instance.name,
+                position = new { x, y, z }
+            });
+        }
+    }
+
+## Rules
+
+  - Class must be static
+  - Must have: public static object HandleCommand(JObject parameters)
+  - Return SuccessResponse(message, data) or ErrorResponse(message)
+  - Add Parameters class with [ToolParameter] for discoverability
+  - Class name auto-converts to snake_case (SpawnEnemy → spawn_enemy)
+  - Override name: [UnityCliTool(Name = "my_name")]
+  - Runs on Unity main thread — all Unity APIs are safe
+  - Discovered on Editor start and after every script recompilation
+
+## Using Tools
+
+  unity-cli tool list                           # List all tools with schemas
+  unity-cli tool call spawn_enemy --params '{"x":1,"y":0,"z":5}'
+  unity-cli tool help spawn_enemy               # Show parameter details
+`)
+	case "setup", "install":
+		fmt.Print(`unity-cli setup — Installation and Unity configuration
+
+## CLI Installation
+
+  # Linux / macOS (one-liner)
+  curl -fsSL https://raw.githubusercontent.com/youngwoocho02/unity-cli/master/install.sh | sh
+
+  # Windows (PowerShell)
+  Invoke-WebRequest -Uri "https://github.com/youngwoocho02/unity-cli/releases/latest/download/unity-cli-windows-amd64.exe" -OutFile "$env:LOCALAPPDATA\unity-cli.exe"
+
+  # Go install (any platform)
+  go install github.com/youngwoocho02/unity-cli@latest
+
+## Unity Setup
+
+  Add the Connector package via Package Manager:
+    1. Window → Package Manager → + → Add package from git URL
+    2. Paste: https://github.com/youngwoocho02/unity-cli.git?path=unity-connector
+
+  Or add to Packages/manifest.json:
+    "com.youngwoocho02.unity-cli-connector": "https://github.com/youngwoocho02/unity-cli.git?path=unity-connector"
+
+  The Connector starts automatically when Unity opens.
+
+## Multiple Unity Instances
+
+  When multiple editors are open, each registers on a different port
+  (8090, 8091, ...). Select by project path or port:
+
+    unity-cli --project MyGame editor play
+    unity-cli --port 8091 editor play
+
+  Default: uses the most recently registered instance.
+
+## Verification
+
+  1. Open Unity with the Connector package installed
+  2. Run: unity-cli tool list
+  3. You should see a list of available tools
+`)
+	default:
+		fmt.Printf("Unknown help topic: %s\n\nAvailable topics: editor, exec, custom-tools, setup\n", topic)
+	}
 }
