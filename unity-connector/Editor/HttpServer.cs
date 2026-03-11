@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Concurrent;
 using System.IO;
 using System.Net;
 using System.Text;
@@ -14,6 +15,8 @@ namespace UnityCliConnector
     /// <summary>
     /// Lightweight HTTP server on localhost. Receives CLI commands as POST /command,
     /// dispatches via CommandRouter, returns JSON responses.
+    /// Uses ConcurrentQueue + EditorApplication.update for main-thread marshaling
+    /// so commands execute even when Unity is unfocused.
     /// Survives domain reloads via InitializeOnLoad.
     /// </summary>
     [InitializeOnLoad]
@@ -26,6 +29,15 @@ namespace UnityCliConnector
         static CancellationTokenSource s_Cts;
         static int s_Port;
 
+        static readonly ConcurrentQueue<WorkItem> s_Queue = new();
+
+        struct WorkItem
+        {
+            public string Command;
+            public JObject Parameters;
+            public TaskCompletionSource<object> Tcs;
+        }
+
         static HttpServer()
         {
             Start();
@@ -33,6 +45,7 @@ namespace UnityCliConnector
             AssemblyReloadEvents.beforeAssemblyReload += Stop;
             AssemblyReloadEvents.afterAssemblyReload += Start;
             EditorApplication.projectChanged += Restart;
+            EditorApplication.update += ProcessQueue;
         }
 
         static void Restart()
@@ -99,6 +112,34 @@ namespace UnityCliConnector
             Debug.Log($"[UnityCliConnector] HTTP server stopped (was port {port})");
         }
 
+        static void ProcessQueue()
+        {
+            while (s_Queue.TryDequeue(out var item))
+            {
+                var captured = item;
+                ProcessItem(captured);
+            }
+        }
+
+        static async void ProcessItem(WorkItem item)
+        {
+            try
+            {
+                var r = await CommandRouter.Dispatch(item.Command, item.Parameters);
+                item.Tcs.SetResult(r);
+            }
+            catch (Exception ex)
+            {
+                item.Tcs.SetResult(new ErrorResponse(ex.Message));
+            }
+        }
+
+        static void ForceEditorUpdate()
+        {
+            try { UnityEditorInternal.InternalEditorUtility.RepaintAllViews(); }
+            catch { }
+        }
+
         static async Task ListenLoop(CancellationToken ct)
         {
             while (ct.IsCancellationRequested == false && s_Listener?.IsListening == true)
@@ -152,21 +193,14 @@ namespace UnityCliConnector
                     }
                     else
                     {
-                        // Marshal to main thread for Unity API access
                         var tcs = new TaskCompletionSource<object>();
-                        EditorApplication.delayCall += async () =>
+                        s_Queue.Enqueue(new WorkItem
                         {
-                            try
-                            {
-                                var r = await CommandRouter.Dispatch(command, parameters);
-                                tcs.SetResult(r);
-                            }
-                            catch (Exception ex)
-                            {
-                                tcs.SetResult(new ErrorResponse(ex.Message));
-                            }
-                        };
-                        try { EditorApplication.QueuePlayerLoopUpdate(); } catch { }
+                            Command = command,
+                            Parameters = parameters,
+                            Tcs = tcs,
+                        });
+                        ForceEditorUpdate();
                         result = await tcs.Task;
                     }
                 }

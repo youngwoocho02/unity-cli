@@ -342,22 +342,6 @@ unity-cli --port 8091 editor play
 unity-cli editor play
 ```
 
-## Troubleshooting
-
-### Commands hang when Unity is not focused
-
-Unity throttles updates when the Editor window is not focused. CLI commands are dispatched via `EditorApplication.delayCall`, which requires an editor update tick to fire.
-
-The Connector calls `QueuePlayerLoopUpdate()` on every incoming request to force a tick, but some operations (especially async ones that span multiple frames) may still stall if Unity stays in the background.
-
-**Fix**: Set Unity to run at full speed in the background:
-
-**Edit > Preferences > General > Interaction Mode → No Throttling**
-
-### Commands fail with EOF during script compilation
-
-When Unity recompiles scripts (domain reload), the HTTP server shuts down and restarts. In-flight requests will receive an EOF error. This is expected — just retry after a few seconds.
-
 ## Compared to MCP
 
 | | MCP | unity-cli |
