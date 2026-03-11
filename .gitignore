@@ -1,5 +1,4 @@
-node_modules/
-dist/
-*.tgz
+unity-cli
+*.exe
 .env
 .DS_Store
