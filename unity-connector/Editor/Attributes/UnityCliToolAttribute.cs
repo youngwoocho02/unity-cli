@@ -19,14 +19,22 @@ namespace UnityCliConnector
     /// Marks a property in a nested Parameters class as a tool parameter.
     /// Used for auto-generating help text and parameter schemas.
     /// </summary>
-    [AttributeUsage(AttributeTargets.Property)]
+    [AttributeUsage(AttributeTargets.Property | AttributeTargets.Field, AllowMultiple = false)]
     public class ToolParameterAttribute : Attribute
     {
-        public string Description { get; }
-        public bool Required { get; set; }
+        public string Name { get; set; }
+        public string Description { get; set; }
+        public bool Required { get; set; } = true;
+        public string DefaultValue { get; set; }
 
-        public ToolParameterAttribute(string description = "")
+        public ToolParameterAttribute(string description)
         {
+            Description = description;
+        }
+
+        public ToolParameterAttribute(string name, string description)
+        {
+            Name = name;
             Description = description;
         }
     }
