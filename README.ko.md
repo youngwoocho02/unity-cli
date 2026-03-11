@@ -112,9 +112,12 @@ $ unity-cli editor play --wait
 Unity 커넥터의 동작:
 1. Editor 시작 시 `localhost:8090`에 HTTP 서버를 열고
 2. `~/.unity-cli/instances.json`에 자신을 등록하여 CLI가 연결할 수 있게 하고
-3. 리플렉션으로 모든 `[UnityCliTool]` 클래스를 자동 탐지하고
-4. 수신된 명령을 메인 스레드의 해당 핸들러로 라우팅하고
-5. 도메인 리로드(스크립트 재컴파일)에서도 유지됩니다
+3. `~/.unity-cli/status/{port}.json`에 0.5초마다 현재 상태를 기록하고
+4. 매 요청마다 리플렉션으로 `[UnityCliTool]` 클래스를 탐지하고
+5. 수신된 명령을 메인 스레드의 해당 핸들러로 라우팅하고
+6. 도메인 리로드(스크립트 재컴파일)에서도 유지됩니다
+
+컴파일이나 리로드 직전에 상태(`compiling`, `reloading`)를 status 파일에 기록합니다. 메인 스레드가 멈추면 timestamp 갱신이 중단되고, CLI는 새로운 timestamp가 찍힐 때까지 대기한 후 명령을 전송합니다.
 
 ## 내장 명령어
 
@@ -136,7 +139,7 @@ unity-cli editor pause
 # 에셋 새로고침
 unity-cli editor refresh
 
-# 새로고침 + 스크립트 컴파일 요청
+# 새로고침 + 스크립트 컴파일 (컴파일 완료까지 대기)
 unity-cli editor refresh --compile
 ```
 
@@ -241,6 +244,19 @@ unity-cli tool call my_custom_tool --params '{"key": "value"}'
 # 도구 도움말
 unity-cli tool help my_custom_tool
 ```
+
+### 상태 확인
+
+```bash
+# Unity Editor 상태 확인
+unity-cli status
+# 출력: Unity (port 8090): ready
+#   Project: /path/to/project
+#   Version: 6000.1.0f1
+#   PID:     12345
+```
+
+명령 전송 전에 CLI가 자동으로 Unity 상태를 확인합니다. Unity가 바쁜 상태(컴파일, 리로드)이면 응답 가능해질 때까지 대기합니다.
 
 ## 글로벌 옵션
 

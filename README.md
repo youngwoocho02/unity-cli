@@ -112,9 +112,12 @@ $ unity-cli editor play --wait
 The Unity Connector:
 1. Opens an HTTP server on `localhost:8090` when the Editor starts
 2. Registers itself in `~/.unity-cli/instances.json` so the CLI knows where to connect
-3. Discovers all `[UnityCliTool]` classes via reflection
-4. Routes incoming commands to the matching handler on the main thread
-5. Survives domain reloads (script recompilation)
+3. Writes a heartbeat to `~/.unity-cli/status/{port}.json` every 0.5s with the current state
+4. Discovers all `[UnityCliTool]` classes via reflection on each request
+5. Routes incoming commands to the matching handler on the main thread
+6. Survives domain reloads (script recompilation)
+
+Before compiling or reloading, the Connector records the state (`compiling`, `reloading`) to the status file. When the main thread freezes, the timestamp stops updating. The CLI detects this and waits for a fresh timestamp before sending commands.
 
 ## Built-in Commands
 
@@ -136,7 +139,7 @@ unity-cli editor pause
 # Refresh assets
 unity-cli editor refresh
 
-# Refresh and request script compilation
+# Refresh and recompile scripts (waits for compilation to finish)
 unity-cli editor refresh --compile
 ```
 
@@ -241,6 +244,19 @@ unity-cli tool call my_custom_tool --params '{"key": "value"}'
 # Get tool help
 unity-cli tool help my_custom_tool
 ```
+
+### Status
+
+```bash
+# Show Unity Editor state
+unity-cli status
+# Output: Unity (port 8090): ready
+#   Project: /path/to/project
+#   Version: 6000.1.0f1
+#   PID:     12345
+```
+
+The CLI also checks Unity's state automatically before sending any command. If Unity is busy (compiling, reloading), it waits for Unity to become responsive.
 
 ## Global Options
 
