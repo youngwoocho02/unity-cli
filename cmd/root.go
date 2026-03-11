@@ -116,6 +116,19 @@ func printResponse(resp *client.CommandResponse) {
 		return
 	}
 
+	if !resp.Success {
+		msg := resp.Message
+		if msg == "" {
+			msg = "unknown error"
+		}
+		if resp.Data != nil && len(resp.Data) > 0 && string(resp.Data) != "null" {
+			fmt.Fprintf(os.Stderr, "Error: %s\nDetails: %s\n", msg, string(resp.Data))
+		} else {
+			fmt.Fprintf(os.Stderr, "Error: %s\n", msg)
+		}
+		return
+	}
+
 	if resp.Data != nil && len(resp.Data) > 0 && string(resp.Data) != "null" {
 		var pretty interface{}
 		if json.Unmarshal(resp.Data, &pretty) == nil {
@@ -124,7 +137,7 @@ func printResponse(resp *client.CommandResponse) {
 		} else {
 			fmt.Println(string(resp.Data))
 		}
-	} else {
+	} else if resp.Message != "" {
 		fmt.Println(resp.Message)
 	}
 }

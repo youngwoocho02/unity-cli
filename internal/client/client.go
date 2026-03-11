@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -81,17 +82,22 @@ func Send(inst *Instance, command string, params interface{}, timeoutMs int) (*C
 
 	resp, err := httpClient.Post(url, "application/json", bytes.NewReader(body))
 	if err != nil {
-		return nil, fmt.Errorf("cannot connect to Unity at port %d. Is Unity running?", inst.Port)
+		return nil, fmt.Errorf("cannot connect to Unity at port %d: %v", inst.Port, err)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("HTTP %d from Unity", resp.StatusCode)
+		var body []byte
+		body, _ = io.ReadAll(resp.Body)
+		if len(body) > 0 {
+			return nil, fmt.Errorf("HTTP %d from Unity: %s", resp.StatusCode, string(body))
+		}
+		return nil, fmt.Errorf("HTTP %d from Unity (command: %s)", resp.StatusCode, command)
 	}
 
 	var result CommandResponse
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return nil, fmt.Errorf("failed to parse Unity response: %w", err)
+		return nil, fmt.Errorf("failed to parse Unity response for '%s': %w", command, err)
 	}
 
 	return &result, nil
