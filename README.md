@@ -239,13 +239,29 @@ public static class SpawnEnemy
     // Command name auto-derived: "spawn_enemy"
     // Call with: unity-cli tool call spawn_enemy --params '{"x":1,"y":0,"z":5}'
 
+    public class Parameters
+    {
+        [ToolParameter("X world position", Required = true)]
+        public float X { get; set; }
+
+        [ToolParameter("Y world position", Required = true)]
+        public float Y { get; set; }
+
+        [ToolParameter("Z world position", Required = true)]
+        public float Z { get; set; }
+
+        [ToolParameter("Prefab name in Resources folder")]
+        public string Prefab { get; set; }
+    }
+
     public static object HandleCommand(JObject parameters)
     {
         float x = parameters["x"]?.Value<float>() ?? 0;
         float y = parameters["y"]?.Value<float>() ?? 0;
         float z = parameters["z"]?.Value<float>() ?? 0;
+        string prefabName = parameters["prefab"]?.Value<string>() ?? "Enemy";
 
-        var prefab = Resources.Load<GameObject>("Enemy");
+        var prefab = Resources.Load<GameObject>(prefabName);
         var instance = Object.Instantiate(prefab, new Vector3(x, y, z), Quaternion.identity);
 
         return new SuccessResponse("Enemy spawned", new
@@ -257,11 +273,23 @@ public static class SpawnEnemy
 }
 ```
 
+The `Parameters` class is optional but recommended. When present, `tool list` and `tool help` expose parameter names, types, descriptions, and required flags — so AI assistants can discover how to call your tool without reading the source code.
+
+```bash
+$ unity-cli tool help spawn_enemy
+spawn_enemy — Spawn an enemy at a position
+  x        float    (required) X world position
+  y        float    (required) Y world position
+  z        float    (required) Z world position
+  prefab   string              Prefab name in Resources folder
+```
+
 ### Rules
 
 - Class must be `static`
 - Must have `public static object HandleCommand(JObject parameters)` or `async Task<object>` variant
 - Return `SuccessResponse(message, data)` or `ErrorResponse(message)`
+- Add a `Parameters` nested class with `[ToolParameter]` attributes for discoverability
 - Class name is auto-converted to snake_case for the command name
 - Override with `[UnityCliTool(Name = "my_name")]` if needed
 - Runs on Unity main thread, so all Unity APIs are safe to call
