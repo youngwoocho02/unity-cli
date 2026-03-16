@@ -1,6 +1,6 @@
 # unity-cli
 
-[English](README.md) | [한국어](README.ko.md)
+[English](README.md) | [Korean](README.ko.md)
 
 > Control Unity Editor from the command line. Built for AI agents, works with anything.
 
