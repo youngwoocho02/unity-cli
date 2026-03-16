@@ -94,6 +94,8 @@ func Execute() error {
 		resp, err = menuCmd(subArgs, send)
 	case "reserialize":
 		resp, err = reserializeCmd(subArgs, send)
+	case "test":
+		resp, err = testCmd(subArgs, send, inst.Port)
 	default:
 		// Try as direct custom tool call
 		resp, err = send(category, map[string]interface{}{})
@@ -234,6 +236,16 @@ Profiler:
   profiler disable               Stop profiler recording
   profiler status                Show profiler state
   profiler clear                 Clear all captured frames
+
+Tests:
+  test [--mode EditMode|PlayMode]   Run tests (default: EditMode)
+  test --filter <name>                  Filter by namespace, class, or full test name
+
+  Examples:
+    test                                Run all EditMode tests
+    test --mode PlayMode            Run all PlayMode tests
+    test --filter MyNamespace.MyClass   Run a specific test class
+    test --mode EditMode --filter MyTest.SpecificTest
 
 Custom Tools:
   tool list                     List all registered tools (built-in + custom)
