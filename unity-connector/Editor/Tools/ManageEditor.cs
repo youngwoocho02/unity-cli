@@ -127,7 +127,7 @@ namespace UnityCliConnector.Tools
             if (tagManagerAssets == null || tagManagerAssets.Length == 0)
                 return new ErrorResponse("Could not access TagManager asset.");
 
-            var tagManager = new SerializedObject(tagManagerAssets[0]);
+            using var tagManager = new SerializedObject(tagManagerAssets[0]);
             var layersProp = tagManager.FindProperty("layers");
             if (layersProp == null || !layersProp.isArray)
                 return new ErrorResponse("Could not find 'layers' property.");

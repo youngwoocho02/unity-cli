@@ -252,7 +252,7 @@ namespace UnityCliConnector.Tools
                 var name = frameData.GetItemName(childId);
                 var totalMs = frameData.GetItemColumnDataAsFloat(childId, HierarchyFrameDataView.columnTotalTime);
                 var selfMs = frameData.GetItemColumnDataAsFloat(childId, HierarchyFrameDataView.columnSelfTime);
-                var calls = (int)frameData.GetItemColumnDataAsFloat(childId, HierarchyFrameDataView.columnCalls);
+                var calls = (long)frameData.GetItemColumnDataAsFloat(childId, HierarchyFrameDataView.columnCalls);
 
                 if (acc.TryGetValue(name, out var existing))
                     acc[name] = (existing.totalMs + totalMs, existing.selfMs + selfMs, existing.calls + calls, existing.count + 1);

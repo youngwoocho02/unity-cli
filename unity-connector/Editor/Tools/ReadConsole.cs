@@ -13,6 +13,7 @@ namespace UnityCliConnector.Tools
     {
         private static MethodInfo _startGettingEntriesMethod, _endGettingEntriesMethod, _clearMethod, _getCountMethod, _getEntryMethod;
         private static FieldInfo _modeField, _messageField, _fileField, _lineField;
+        private static Type _logEntryType;
 
         static ReadConsole()
         {
@@ -23,23 +24,32 @@ namespace UnityCliConnector.Tools
                 BindingFlags sf = BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic;
                 BindingFlags inf = BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic;
 
-                _startGettingEntriesMethod = logEntriesType.GetMethod("StartGettingEntries", sf);
-                _endGettingEntriesMethod = logEntriesType.GetMethod("EndGettingEntries", sf);
-                _clearMethod = logEntriesType.GetMethod("Clear", sf);
-                _getCountMethod = logEntriesType.GetMethod("GetCount", sf);
-                _getEntryMethod = logEntriesType.GetMethod("GetEntryInternal", sf);
+                _startGettingEntriesMethod = logEntriesType.GetMethod("StartGettingEntries", sf)
+                    ?? throw new Exception("Method not found: LogEntries.StartGettingEntries");
+                _endGettingEntriesMethod = logEntriesType.GetMethod("EndGettingEntries", sf)
+                    ?? throw new Exception("Method not found: LogEntries.EndGettingEntries");
+                _clearMethod = logEntriesType.GetMethod("Clear", sf)
+                    ?? throw new Exception("Method not found: LogEntries.Clear");
+                _getCountMethod = logEntriesType.GetMethod("GetCount", sf)
+                    ?? throw new Exception("Method not found: LogEntries.GetCount");
+                _getEntryMethod = logEntriesType.GetMethod("GetEntryInternal", sf)
+                    ?? throw new Exception("Method not found: LogEntries.GetEntryInternal");
 
-                Type logEntryType = typeof(EditorApplication).Assembly.GetType("UnityEditor.LogEntry");
-                _modeField = logEntryType.GetField("mode", inf);
-                _messageField = logEntryType.GetField("message", inf);
-                _fileField = logEntryType.GetField("file", inf);
-                _lineField = logEntryType.GetField("line", inf);
+                _logEntryType = typeof(EditorApplication).Assembly.GetType("UnityEditor.LogEntry")
+                    ?? throw new Exception("Could not find UnityEditor.LogEntry");
+                _modeField = _logEntryType.GetField("mode", inf)
+                    ?? throw new Exception("Field not found: LogEntry.mode");
+                _messageField = _logEntryType.GetField("message", inf)
+                    ?? throw new Exception("Field not found: LogEntry.message");
+                _fileField = _logEntryType.GetField("file", inf);
+                _lineField = _logEntryType.GetField("line", inf);
             }
             catch (Exception e)
             {
                 Debug.LogError($"[UnityCliConnector] ReadConsole init failed: {e.Message}");
                 _startGettingEntriesMethod = _endGettingEntriesMethod = _clearMethod = _getCountMethod = _getEntryMethod = null;
                 _modeField = _messageField = _fileField = _lineField = null;
+                _logEntryType = null;
             }
         }
 
@@ -65,7 +75,7 @@ namespace UnityCliConnector.Tools
         {
             if (_startGettingEntriesMethod == null || _endGettingEntriesMethod == null ||
                 _clearMethod == null || _getCountMethod == null || _getEntryMethod == null ||
-                _modeField == null || _messageField == null)
+                _modeField == null || _messageField == null || _logEntryType == null)
                 return new ErrorResponse("ReadConsole failed to initialize (reflection error).");
 
             if (@params == null)
@@ -102,8 +112,7 @@ namespace UnityCliConnector.Tools
             {
                 _startGettingEntriesMethod.Invoke(null, null);
                 int total = (int)_getCountMethod.Invoke(null, null);
-                Type logEntryType = typeof(EditorApplication).Assembly.GetType("UnityEditor.LogEntry");
-                object logEntry = Activator.CreateInstance(logEntryType);
+                object logEntry = Activator.CreateInstance(_logEntryType);
 
                 for (int i = 0; i < total; i++)
                 {

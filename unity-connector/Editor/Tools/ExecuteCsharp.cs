@@ -40,7 +40,7 @@ namespace UnityCliConnector.Tools
 
             var extraUsings = parameters["usings"]?.ToObject<string[]>();
 
-            if (Regex.IsMatch(code, @"\breturn[\s;]") == false)
+            if (Regex.IsMatch(code, @"\breturn\b") == false)
             {
                 var trimmed = code.TrimEnd().TrimEnd(';');
                 code = $"return (object)({trimmed});";
@@ -78,6 +78,7 @@ namespace UnityCliConnector.Tools
                 TreatWarningsAsErrors = false
             };
 
+            var references = new List<string>();
             var added = new HashSet<string>();
             foreach (var asm in AppDomain.CurrentDomain.GetAssemblies())
             {
@@ -88,25 +89,51 @@ namespace UnityCliConnector.Tools
                     if (!added.Add(name)) continue;
                     if (name == "mscorlib") continue;
                     if (IsBclFacade(asm)) continue;
-                    cp.ReferencedAssemblies.Add(asm.Location);
+                    references.Add(asm.Location);
                 }
                 catch { }
             }
 
-            var result = provider.CompileAssemblyFromSource(cp, source);
-            if (result.Errors.HasErrors)
+            // Use a response file to avoid Windows command line length limits (32,767 chars).
+            // Large Unity projects can load 300+ assemblies, easily exceeding this limit.
+            string rspPath = null;
+            try
             {
-                var errors = new List<string>();
-                foreach (CompilerError err in result.Errors)
-                    if (!err.IsWarning) errors.Add($"L{err.Line}: {err.ErrorText}");
-                return new ErrorResponse($"Compile error:\n{string.Join("\n", errors)}");
+                rspPath = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"unity_cli_{Guid.NewGuid():N}.rsp");
+                var rspContent = new StringBuilder();
+                foreach (var r in references)
+                    rspContent.AppendLine($"/r:\"{r}\"");
+                System.IO.File.WriteAllText(rspPath, rspContent.ToString());
+                cp.CompilerOptions = $"@\"{rspPath}\"";
+            }
+            catch
+            {
+                // Fallback: add references directly (may fail on large projects)
+                foreach (var r in references)
+                    cp.ReferencedAssemblies.Add(r);
             }
 
-            var method = result.CompiledAssembly.GetType("__CliDynamic")?.GetMethod("Execute");
-            if (method == null)
-                return new ErrorResponse("Internal error: compiled type or method not found.");
-            var output = method.Invoke(null, null);
-            return new SuccessResponse("OK", Serialize(output, 0));
+            try
+            {
+                var result = provider.CompileAssemblyFromSource(cp, source);
+                if (result.Errors.HasErrors)
+                {
+                    var errors = new List<string>();
+                    foreach (CompilerError err in result.Errors)
+                        if (!err.IsWarning) errors.Add($"L{err.Line}: {err.ErrorText}");
+                    return new ErrorResponse($"Compile error:\n{string.Join("\n", errors)}");
+                }
+
+                var method = result.CompiledAssembly.GetType("__CliDynamic")?.GetMethod("Execute");
+                if (method == null)
+                    return new ErrorResponse("Internal error: compiled type or method not found.");
+                var output = method.Invoke(null, null);
+                return new SuccessResponse("OK", Serialize(output, 0));
+            }
+            finally
+            {
+                if (rspPath != null) try { System.IO.File.Delete(rspPath); } catch { }
+            }
         }
 
         private static bool IsBclFacade(Assembly asm)
