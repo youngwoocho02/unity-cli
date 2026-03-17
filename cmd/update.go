@@ -68,7 +68,7 @@ func updateCmd(args []string) error {
 	if err != nil {
 		return fmt.Errorf("download failed: %w", err)
 	}
-	defer os.Remove(tmpFile)
+	defer func() { _ = os.Remove(tmpFile) }()
 
 	if err := os.Chmod(tmpFile, 0755); err != nil {
 		return fmt.Errorf("chmod failed: %w", err)
@@ -138,7 +138,7 @@ func download(url string, targetDir string) (string, error) {
 	defer tmp.Close()
 
 	if _, err := io.Copy(tmp, resp.Body); err != nil {
-		os.Remove(tmp.Name())
+		_ = os.Remove(tmp.Name())
 		return "", err
 	}
 

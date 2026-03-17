@@ -28,7 +28,10 @@ func Execute() error {
 
 	args := os.Args[1:]
 	flagArgs, cmdArgs := splitArgs(args)
-	flag.CommandLine.Parse(flagArgs)
+	if err := flag.CommandLine.Parse(flagArgs); err != nil {
+		fmt.Fprintf(os.Stderr, "flag parse error: %v\n", err)
+		os.Exit(1)
+	}
 
 	if len(cmdArgs) == 0 {
 		printHelp()
@@ -150,7 +153,7 @@ func printResponse(resp *client.CommandResponse) {
 		if msg == "" {
 			msg = "unknown error"
 		}
-		if resp.Data != nil && len(resp.Data) > 0 && string(resp.Data) != "null" {
+		if len(resp.Data) > 0 && string(resp.Data) != "null" {
 			fmt.Fprintf(os.Stderr, "Error: %s\nDetails: %s\n", msg, string(resp.Data))
 		} else {
 			fmt.Fprintf(os.Stderr, "Error: %s\n", msg)
@@ -158,7 +161,7 @@ func printResponse(resp *client.CommandResponse) {
 		return
 	}
 
-	if resp.Data != nil && len(resp.Data) > 0 && string(resp.Data) != "null" {
+	if len(resp.Data) > 0 && string(resp.Data) != "null" {
 		var pretty interface{}
 		if json.Unmarshal(resp.Data, &pretty) == nil {
 			// If data is a plain string, print it raw (preserves newlines for tree output etc.)
