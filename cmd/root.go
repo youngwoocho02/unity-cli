@@ -72,7 +72,7 @@ func Execute() error {
 		return err
 	}
 
-	if err := waitForAlive(inst.Port, flagTimeout); err != nil {
+	if err := waitForAlive(inst.ProjectPath, flagTimeout); err != nil {
 		return err
 	}
 
@@ -84,7 +84,7 @@ func Execute() error {
 
 	switch category {
 	case "editor":
-		resp, err = editorCmd(subArgs, send, inst.Port)
+		resp, err = editorCmd(subArgs, send, inst.ProjectPath)
 	case "console":
 		resp, err = consoleCmd(subArgs, send)
 	case "exec":

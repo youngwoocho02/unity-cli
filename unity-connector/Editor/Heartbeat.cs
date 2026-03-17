@@ -1,5 +1,7 @@
 using System;
 using System.IO;
+using System.Security.Cryptography;
+using System.Text;
 using Newtonsoft.Json;
 using UnityEditor;
 using UnityEditor.Compilation;
@@ -11,7 +13,7 @@ namespace UnityCliConnector
     public static class Heartbeat
     {
         static readonly string s_Dir = Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".unity-cli", "status");
+            Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".unity-cli", "instances");
 
         static double s_LastWrite;
         const double INTERVAL = 0.5;
@@ -21,7 +23,7 @@ namespace UnityCliConnector
         static Heartbeat()
         {
             EditorApplication.update += Tick;
-            EditorApplication.quitting += Cleanup;
+            EditorApplication.quitting += OnQuitting;
             AssemblyReloadEvents.beforeAssemblyReload += OnBeforeAssemblyReload;
             AssemblyReloadEvents.afterAssemblyReload += () => { s_ForcedState = null; s_LastWrite = 0; };
             CompilationPipeline.compilationStarted += _ => WriteState("compiling");
@@ -31,6 +33,11 @@ namespace UnityCliConnector
         static void OnBeforeAssemblyReload()
         {
             WriteState("reloading");
+        }
+
+        static void OnQuitting()
+        {
+            WriteState("stopped");
         }
 
         static void OnPlayModeChanged(PlayModeStateChange change)
@@ -65,12 +72,22 @@ namespace UnityCliConnector
 
             if (s_CompileRequestTime > 0)
             {
-                if (now - s_CompileRequestTime < 3.0 && EditorApplication.isCompiling == false)
+                if (EditorApplication.isCompiling)
                 {
+                    // Compilation started, hand off to normal GetState() flow
+                    s_CompileRequestTime = 0;
+                }
+                else if (now - s_CompileRequestTime < 10.0)
+                {
+                    // Still waiting for compilation to start, keep forced "compiling" state
                     Write();
                     return;
                 }
-                s_CompileRequestTime = 0;
+                else
+                {
+                    // Grace period expired, compilation never started
+                    s_CompileRequestTime = 0;
+                }
             }
 
             s_ForcedState = null;
@@ -92,7 +109,7 @@ namespace UnityCliConnector
             try
             {
                 Directory.CreateDirectory(s_Dir);
-                var path = Path.Combine(s_Dir, $"{HttpServer.Port}.json");
+                var path = Path.Combine(s_Dir, $"{ProjectHash()}.json");
                 File.WriteAllText(path, JsonConvert.SerializeObject(status));
             }
             catch
@@ -109,18 +126,16 @@ namespace UnityCliConnector
             return "ready";
         }
 
-        public static void Cleanup()
-        {
-            if (HttpServer.Port == 0) return;
+        static string s_ProjectHash;
 
-            try
-            {
-                var path = Path.Combine(s_Dir, $"{HttpServer.Port}.json");
-                if (File.Exists(path)) File.Delete(path);
-            }
-            catch
-            {
-            }
+        static string ProjectHash()
+        {
+            if (s_ProjectHash != null) return s_ProjectHash;
+            var projectPath = Application.dataPath.Replace("/Assets", "");
+            using var md5 = MD5.Create();
+            var bytes = md5.ComputeHash(Encoding.UTF8.GetBytes(projectPath));
+            s_ProjectHash = BitConverter.ToString(bytes).Replace("-", "").Substring(0, 16).ToLowerInvariant();
+            return s_ProjectHash;
         }
     }
 }

@@ -2,6 +2,7 @@ package client
 
 import (
 	"bytes"
+	"crypto/md5"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -16,8 +17,9 @@ type Instance struct {
 	ProjectPath  string `json:"projectPath"`
 	Port         int    `json:"port"`
 	PID          int    `json:"pid"`
+	State        string `json:"state"`
 	UnityVersion string `json:"unityVersion,omitempty"`
-	RegisteredAt string `json:"registeredAt,omitempty"`
+	Timestamp    int64  `json:"timestamp"`
 }
 
 type CommandRequest struct {
@@ -31,9 +33,9 @@ type CommandResponse struct {
 	Data    json.RawMessage `json:"data,omitempty"`
 }
 
-func instancesPath() string {
+func instancesDir() string {
 	home, _ := os.UserHomeDir()
-	return filepath.Join(home, ".unity-cli", "instances.json")
+	return filepath.Join(home, ".unity-cli", "instances")
 }
 
 func DiscoverInstance(project string, port int) (*Instance, error) {
@@ -41,31 +43,86 @@ func DiscoverInstance(project string, port int) (*Instance, error) {
 		return &Instance{ProjectPath: "override", Port: port}, nil
 	}
 
-	path := instancesPath()
-	data, err := os.ReadFile(path)
+	dir := instancesDir()
+	entries, err := os.ReadDir(dir)
 	if err != nil {
-		return nil, fmt.Errorf("no Unity instances found.\nIs Unity running with the Connector package?\nExpected: %s", path)
+		return nil, fmt.Errorf("no Unity instances found.\nIs Unity running with the Connector package?\nExpected: %s", dir)
 	}
 
-	var instances []Instance
-	if err := json.Unmarshal(data, &instances); err != nil {
-		return nil, fmt.Errorf("failed to parse instances.json: %w", err)
+	var alive []*Instance
+	now := time.Now().UnixMilli()
+
+	for _, entry := range entries {
+		if entry.IsDir() || filepath.Ext(entry.Name()) != ".json" {
+			continue
+		}
+		data, err := os.ReadFile(filepath.Join(dir, entry.Name()))
+		if err != nil {
+			continue
+		}
+		var inst Instance
+		if json.Unmarshal(data, &inst) != nil {
+			continue
+		}
+		// Skip stopped or stale instances
+		if inst.State == "stopped" {
+			continue
+		}
+		if now-inst.Timestamp > 3000 {
+			continue
+		}
+		alive = append(alive, &inst)
 	}
 
-	if len(instances) == 0 {
-		return nil, fmt.Errorf("no Unity instances registered")
+	if len(alive) == 0 {
+		return nil, fmt.Errorf("no Unity instances running")
 	}
 
 	if project != "" {
-		for _, inst := range instances {
+		// Prefer exact suffix match
+		for _, inst := range alive {
+			if inst.ProjectPath == project || strings.HasSuffix(inst.ProjectPath, "/"+project) || strings.HasSuffix(inst.ProjectPath, "\\"+project) {
+				return inst, nil
+			}
+		}
+		// Fall back to substring match
+		for _, inst := range alive {
 			if strings.Contains(inst.ProjectPath, project) {
-				return &inst, nil
+				return inst, nil
 			}
 		}
 		return nil, fmt.Errorf("no Unity instance found for project: %s", project)
 	}
 
-	return &instances[len(instances)-1], nil
+	// Return the most recently updated instance
+	best := alive[0]
+	for _, inst := range alive[1:] {
+		if inst.Timestamp > best.Timestamp {
+			best = inst
+		}
+	}
+	return best, nil
+}
+
+// ReadInstance reads the instance file for the given project path hash.
+func ReadInstance(projectPath string) (*Instance, error) {
+	hash := ProjectHash(projectPath)
+	path := filepath.Join(instancesDir(), hash+".json")
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+	var inst Instance
+	if err := json.Unmarshal(data, &inst); err != nil {
+		return nil, err
+	}
+	return &inst, nil
+}
+
+// ProjectHash returns the first 16 hex chars of MD5(projectPath).
+func ProjectHash(projectPath string) string {
+	h := md5.Sum([]byte(projectPath))
+	return fmt.Sprintf("%x", h)[:16]
 }
 
 func Send(inst *Instance, command string, params interface{}, timeoutMs int) (*CommandResponse, error) {
@@ -91,6 +148,10 @@ func Send(inst *Instance, command string, params interface{}, timeoutMs int) (*C
 		var body []byte
 		body, _ = io.ReadAll(resp.Body)
 		if len(body) > 0 {
+			var errResp CommandResponse
+			if json.Unmarshal(body, &errResp) == nil && errResp.Message != "" {
+				return nil, fmt.Errorf("Unity error: %s", errResp.Message)
+			}
 			return nil, fmt.Errorf("HTTP %d from Unity: %s", resp.StatusCode, string(body))
 		}
 		return nil, fmt.Errorf("HTTP %d from Unity (command: %s)", resp.StatusCode, command)

@@ -2,6 +2,7 @@ using System;
 using System.Collections.Concurrent;
 using System.IO;
 using System.Net;
+using System.Net.Sockets;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
@@ -75,13 +76,16 @@ namespace UnityCliConnector
 
                     _ = ListenLoop(s_Cts.Token);
 
-                    InstanceRegistry.Register(port);
                     Debug.Log($"[UnityCliConnector] HTTP server started on port {port}");
                     return;
                 }
                 catch (HttpListenerException)
                 {
                     // Port in use, try next
+                }
+                catch (SocketException)
+                {
+                    // Port in use (Windows/Mono may throw SocketException instead of HttpListenerException)
                 }
             }
 
@@ -106,13 +110,13 @@ namespace UnityCliConnector
             }
 
             s_Listener = null;
+
         }
 
         static void Stop()
         {
             var port = s_Port;
             StopListener();
-            InstanceRegistry.Unregister();
             Debug.Log($"[UnityCliConnector] HTTP server stopped (was port {port})");
         }
 
@@ -212,11 +216,18 @@ namespace UnityCliConnector
                 response.StatusCode = 500;
             }
 
-            var responseJson = JsonConvert.SerializeObject(result);
-            var buffer = Encoding.UTF8.GetBytes(responseJson);
-            response.ContentLength64 = buffer.Length;
-            await response.OutputStream.WriteAsync(buffer, 0, buffer.Length);
-            response.Close();
+            try
+            {
+                var responseJson = JsonConvert.SerializeObject(result);
+                var buffer = Encoding.UTF8.GetBytes(responseJson);
+                response.ContentLength64 = buffer.Length;
+                await response.OutputStream.WriteAsync(buffer, 0, buffer.Length);
+                response.Close();
+            }
+            catch (Exception)
+            {
+                // Client disconnected before response could be written — safe to ignore
+            }
         }
     }
 }
