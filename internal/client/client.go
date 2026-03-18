@@ -19,6 +19,7 @@ type Instance struct {
 	PID          int    `json:"pid"`
 	UnityVersion string `json:"unityVersion,omitempty"`
 	RegisteredAt string `json:"registeredAt,omitempty"`
+	Token        string `json:"token,omitempty"`
 }
 
 // CommandRequest is the JSON body sent to Unity's HTTP server.
@@ -89,7 +90,16 @@ func Send(inst *Instance, command string, params interface{}, timeoutMs int) (*C
 	url := fmt.Sprintf("http://127.0.0.1:%d/command", inst.Port)
 	httpClient := &http.Client{Timeout: time.Duration(timeoutMs) * time.Millisecond}
 
-	resp, err := httpClient.Post(url, "application/json", bytes.NewReader(body))
+	req, err := http.NewRequest("POST", url, bytes.NewReader(body))
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	if inst.Token != "" {
+		req.Header.Set("Authorization", "Bearer "+inst.Token)
+	}
+
+	resp, err := httpClient.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("cannot connect to Unity at port %d: %v", inst.Port, err)
 	}

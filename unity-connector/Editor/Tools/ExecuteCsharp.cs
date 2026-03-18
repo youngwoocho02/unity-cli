@@ -10,7 +10,7 @@ using Newtonsoft.Json.Linq;
 
 namespace UnityCliConnector.Tools
 {
-    [UnityCliTool(Description = "Execute arbitrary C# code at runtime. Full access to Unity and all loaded assemblies.")]
+    [UnityCliTool(Description = "Execute C# code at runtime. Dangerous namespaces (Process, Net, InteropServices, Win32) are blocked.")]
     public static class ExecuteCsharp
     {
         private static readonly string[] DefaultUsings =
@@ -18,9 +18,31 @@ namespace UnityCliConnector.Tools
             "System",
             "System.Collections.Generic",
             "System.Linq",
-            "System.Reflection",
             "UnityEngine",
             "UnityEditor",
+        };
+
+        private static readonly string[] BlockedNamespacePrefixes =
+        {
+            "System.Diagnostics.Process",
+            "System.Net",
+            "System.Runtime.InteropServices",
+            "Microsoft.Win32",
+        };
+
+        private static readonly string[] BlockedSourcePatterns =
+        {
+            "System.Diagnostics.Process",
+            "System.IO.File",
+            "System.IO.Directory",
+            "System.IO.StreamWriter",
+            "System.IO.FileStream",
+            "System.Net.WebClient",
+            "System.Net.Http",
+            "System.Net.Sockets",
+            "System.Runtime.InteropServices.Marshal",
+            "System.Runtime.InteropServices.DllImport",
+            "Microsoft.Win32.Registry",
         };
 
         public class Parameters
@@ -39,6 +61,26 @@ namespace UnityCliConnector.Tools
                 return new ErrorResponse("'code' required");
 
             var extraUsings = parameters["usings"]?.ToObject<string[]>();
+
+            // Validate extra usings against blocklist
+            if (extraUsings != null)
+            {
+                foreach (var u in extraUsings)
+                {
+                    foreach (var blocked in BlockedNamespacePrefixes)
+                    {
+                        if (u.StartsWith(blocked, StringComparison.OrdinalIgnoreCase))
+                            return new ErrorResponse($"Blocked using directive: '{u}'");
+                    }
+                }
+            }
+
+            // Source-level scan for blocked fully-qualified type references
+            foreach (var pattern in BlockedSourcePatterns)
+            {
+                if (code.Contains(pattern))
+                    return new ErrorResponse($"Blocked reference to '{pattern}' in source code");
+            }
 
             if (Regex.IsMatch(code, @"\breturn\b") == false)
             {
@@ -89,6 +131,7 @@ namespace UnityCliConnector.Tools
                     if (!added.Add(name)) continue;
                     if (name == "mscorlib") continue;
                     if (IsBclFacade(asm)) continue;
+                    if (IsBlockedAssembly(name)) continue;
                     references.Add(asm.Location);
                 }
                 catch { }
@@ -147,6 +190,16 @@ namespace UnityCliConnector.Tools
                     if (attr.AttributeType.Name == "TypeForwardedToAttribute") return true;
             }
             catch { }
+            return false;
+        }
+
+        private static bool IsBlockedAssembly(string name)
+        {
+            // Block assemblies that provide dangerous capabilities
+            if (name == "System.Diagnostics.Process") return true;
+            if (name.StartsWith("System.Net")) return true;
+            if (name == "System.Runtime.InteropServices") return true;
+            if (name.StartsWith("Microsoft.Win32")) return true;
             return false;
         }
 

@@ -25,9 +25,10 @@ namespace UnityCliConnector
             public int pid;
             public string unityVersion;
             public string registeredAt;
+            public string token;
         }
 
-        public static void Register(int port)
+        public static void Register(int port, string token)
         {
             var instances = Load();
 
@@ -42,6 +43,7 @@ namespace UnityCliConnector
                 pid = System.Diagnostics.Process.GetCurrentProcess().Id,
                 unityVersion = Application.unityVersion,
                 registeredAt = DateTime.UtcNow.ToString("o"),
+                token = token,
             });
 
             Save(instances);

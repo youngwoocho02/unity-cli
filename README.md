@@ -75,6 +75,26 @@ To pin a specific version, append a tag to the URL (e.g. `#v0.2.21`).
 
 Once added, the Connector starts automatically when Unity opens. No configuration needed.
 
+### Authentication
+
+The Connector generates a per-session auth token on startup and stores it in `~/.unity-cli/instances.json`. The CLI reads the token automatically during instance discovery and sends it as a `Bearer` token on every request. No manual configuration is needed.
+
+If you're using `--port` to connect directly (bypassing discovery), pass the token explicitly:
+
+```bash
+unity-cli --port 8090 --token <token> exec "Time.time"
+```
+
+Unauthenticated requests receive HTTP 401. This prevents any website from executing commands on your machine via the local HTTP server.
+
+### Security
+
+- **Auth token**: Every request requires a `Bearer` token that matches the session. Tokens rotate on every domain reload / Editor restart.
+- **CORS**: Only `localhost` / `127.0.0.1` / `[::1]` origins are allowed. Non-localhost origins (e.g., `https://evil-site.com`) receive no CORS headers and are blocked by the browser.
+- **`execute_csharp` sandboxing**: Dangerous namespaces (`System.Diagnostics.Process`, `System.Net.*`, `System.Runtime.InteropServices`, `Microsoft.Win32`) are blocked at the assembly-reference, using-directive, and source-code levels. This is defense-in-depth — auth is the primary gate.
+- **Request size limit**: Request bodies are capped at 1 MB.
+- **Path validation**: `reserialize` only accepts paths under `Assets/`.
+
 ### Recommended: Disable Editor Throttling
 
 By default, Unity throttles editor updates when the window is unfocused. This means CLI commands may not execute until you click back into Unity.
@@ -316,6 +336,7 @@ The CLI also checks Unity's state automatically before sending any command. If U
 | `--port <N>` | Override Unity instance port (skip auto-discovery) | auto |
 | `--project <path>` | Select Unity instance by project path | latest |
 | `--timeout <ms>` | HTTP request timeout | 120000 |
+| `--token <token>` | Auth token (overrides token from instances.json) | auto |
 
 ```bash
 # Connect to a specific Unity instance

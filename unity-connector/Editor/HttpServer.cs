@@ -24,10 +24,12 @@ namespace UnityCliConnector
     {
         const int DEFAULT_PORT = 8090;
         const int MAX_PORT_ATTEMPTS = 10;
+        const int MaxRequestBodyBytes = 1_048_576; // 1 MB
 
         static HttpListener s_Listener;
         static CancellationTokenSource s_Cts;
         static int s_Port;
+        static string s_AuthToken;
 
         static readonly ConcurrentQueue<WorkItem> s_Queue = new();
 
@@ -71,11 +73,12 @@ namespace UnityCliConnector
 
                     s_Listener = listener;
                     s_Port = port;
+                    s_AuthToken = Guid.NewGuid().ToString("N");
                     s_Cts = new CancellationTokenSource();
 
                     _ = ListenLoop(s_Cts.Token);
 
-                    InstanceRegistry.Register(port);
+                    InstanceRegistry.Register(port, s_AuthToken);
                     Debug.Log($"[UnityCliConnector] HTTP server started on port {port}");
                     return;
                 }
@@ -165,13 +168,54 @@ namespace UnityCliConnector
             }
         }
 
+        static bool IsLocalhostOrigin(string origin)
+        {
+            if (string.IsNullOrEmpty(origin)) return false;
+            if (Uri.TryCreate(origin, UriKind.Absolute, out var uri))
+            {
+                var host = uri.Host;
+                return host == "localhost" || host == "127.0.0.1" || host == "[::1]";
+            }
+            return false;
+        }
+
+        static void SetCorsHeaders(HttpListenerResponse response, string origin)
+        {
+            if (IsLocalhostOrigin(origin))
+            {
+                response.Headers.Add("Access-Control-Allow-Origin", origin);
+                response.Headers.Add("Access-Control-Allow-Methods", "POST, OPTIONS");
+                response.Headers.Add("Access-Control-Allow-Headers", "Content-Type, Authorization");
+                response.Headers.Add("Vary", "Origin");
+            }
+        }
+
+        static bool ValidateAuth(HttpListenerRequest request)
+        {
+            if (string.IsNullOrEmpty(s_AuthToken)) return false;
+            var header = request.Headers["Authorization"];
+            if (string.IsNullOrEmpty(header)) return false;
+            if (!header.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase)) return false;
+            var token = header.Substring(7).Trim();
+            return string.Equals(token, s_AuthToken, StringComparison.Ordinal);
+        }
+
         static async Task HandleRequest(HttpListenerContext context)
         {
             var request = context.Request;
             var response = context.Response;
 
             response.ContentType = "application/json";
-            response.Headers.Add("Access-Control-Allow-Origin", "*");
+            var origin = request.Headers["Origin"];
+            SetCorsHeaders(response, origin);
+
+            // Handle CORS preflight
+            if (request.HttpMethod == "OPTIONS")
+            {
+                response.StatusCode = 204;
+                response.Close();
+                return;
+            }
 
             object result;
 
@@ -182,31 +226,49 @@ namespace UnityCliConnector
                     result = new ErrorResponse($"Expected POST /command, got {request.HttpMethod} {request.Url.AbsolutePath}");
                     response.StatusCode = 400;
                 }
+                else if (!ValidateAuth(request))
+                {
+                    result = new ErrorResponse("Unauthorized");
+                    response.StatusCode = 401;
+                }
+                else if (request.ContentLength64 > MaxRequestBodyBytes)
+                {
+                    result = new ErrorResponse($"Request body too large (max {MaxRequestBodyBytes} bytes)");
+                    response.StatusCode = 413;
+                }
                 else
                 {
                     using var reader = new StreamReader(request.InputStream, Encoding.UTF8);
                     var body = await reader.ReadToEndAsync();
-                    var json = JObject.Parse(body);
-
-                    var command = json["command"]?.ToString();
-                    var parameters = json["params"] as JObject;
-
-                    if (string.IsNullOrEmpty(command))
+                    if (body.Length > MaxRequestBodyBytes)
                     {
-                        result = new ErrorResponse("Missing 'command' field");
-                        response.StatusCode = 400;
+                        result = new ErrorResponse($"Request body too large (max {MaxRequestBodyBytes} bytes)");
+                        response.StatusCode = 413;
                     }
                     else
                     {
-                        var tcs = new TaskCompletionSource<object>();
-                        s_Queue.Enqueue(new WorkItem
+                        var json = JObject.Parse(body);
+
+                        var command = json["command"]?.ToString();
+                        var parameters = json["params"] as JObject;
+
+                        if (string.IsNullOrEmpty(command))
                         {
-                            Command = command,
-                            Parameters = parameters,
-                            Tcs = tcs,
-                        });
-                        ForceEditorUpdate();
-                        result = await tcs.Task;
+                            result = new ErrorResponse("Missing 'command' field");
+                            response.StatusCode = 400;
+                        }
+                        else
+                        {
+                            var tcs = new TaskCompletionSource<object>();
+                            s_Queue.Enqueue(new WorkItem
+                            {
+                                Command = command,
+                                Parameters = parameters,
+                                Tcs = tcs,
+                            });
+                            ForceEditorUpdate();
+                            result = await tcs.Task;
+                        }
                     }
                 }
             }

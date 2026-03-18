@@ -17,12 +17,14 @@ var (
 	flagPort    int
 	flagProject string
 	flagTimeout int
+	flagToken   string
 )
 
 func Execute() error {
 	flag.IntVar(&flagPort, "port", 0, "Override Unity instance port")
 	flag.StringVar(&flagProject, "project", "", "Select Unity instance by project path")
 	flag.IntVar(&flagTimeout, "timeout", 120000, "Request timeout in milliseconds")
+	flag.StringVar(&flagToken, "token", "", "Auth token (overrides instances.json token)")
 
 	flag.Usage = func() { printHelp() }
 
@@ -67,12 +69,18 @@ func Execute() error {
 		if err != nil {
 			return err
 		}
+		if flagToken != "" {
+			inst.Token = flagToken
+		}
 		return statusCmd(inst)
 	}
 
 	inst, err := client.DiscoverInstance(flagProject, flagPort)
 	if err != nil {
 		return err
+	}
+	if flagToken != "" {
+		inst.Token = flagToken
 	}
 
 	if err := waitForAlive(inst.Port, flagTimeout); err != nil {
@@ -227,7 +235,7 @@ func setStr(flags map[string]string, params map[string]interface{}, flag, param 
 // Global flags must be parsed by flag.CommandLine before the subcommand runs.
 func splitArgs(args []string) (flags, commands []string) {
 	for i := 0; i < len(args); i++ {
-		if args[i] == "--port" || args[i] == "--project" || args[i] == "--timeout" {
+		if args[i] == "--port" || args[i] == "--project" || args[i] == "--timeout" || args[i] == "--token" {
 			flags = append(flags, args[i])
 			if i+1 < len(args) {
 				i++
@@ -312,6 +320,7 @@ Global Options:
   --port <N>          Connect to specific Unity port (skip auto-discovery)
   --project <path>    Select Unity instance by project path
   --timeout <ms>      Request timeout in ms (default: 120000)
+  --token <token>     Auth token (overrides token from instances.json)
 
 Use "unity-cli <command> --help" for more information about a command.
 
