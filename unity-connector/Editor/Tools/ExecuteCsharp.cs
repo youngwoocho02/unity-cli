@@ -195,11 +195,11 @@ namespace UnityCliConnector.Tools
 
         private static bool IsBlockedAssembly(string name)
         {
-            // Block assemblies that provide dangerous capabilities
-            if (name == "System.Diagnostics.Process") return true;
-            if (name.StartsWith("System.Net")) return true;
-            if (name == "System.Runtime.InteropServices") return true;
-            if (name.StartsWith("Microsoft.Win32")) return true;
+            foreach (var prefix in BlockedNamespacePrefixes)
+            {
+                if (name.StartsWith(prefix, StringComparison.Ordinal))
+                    return true;
+            }
             return false;
         }
 

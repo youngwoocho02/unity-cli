@@ -57,6 +57,7 @@ namespace UnityCliConnector
         }
 
         public static int Port => s_Port;
+        public static string AuthToken => s_AuthToken;
 
         static void Start()
         {
@@ -200,6 +201,15 @@ namespace UnityCliConnector
             return string.Equals(token, s_AuthToken, StringComparison.Ordinal);
         }
 
+        static async Task WriteResponse(HttpListenerResponse response, object result)
+        {
+            var responseJson = JsonConvert.SerializeObject(result);
+            var buffer = Encoding.UTF8.GetBytes(responseJson);
+            response.ContentLength64 = buffer.Length;
+            await response.OutputStream.WriteAsync(buffer, 0, buffer.Length);
+            response.Close();
+        }
+
         static async Task HandleRequest(HttpListenerContext context)
         {
             var request = context.Request;
@@ -209,7 +219,6 @@ namespace UnityCliConnector
             var origin = request.Headers["Origin"];
             SetCorsHeaders(response, origin);
 
-            // Handle CORS preflight
             if (request.HttpMethod == "OPTIONS")
             {
                 response.StatusCode = 204;
@@ -217,72 +226,65 @@ namespace UnityCliConnector
                 return;
             }
 
-            object result;
-
             try
             {
                 if (request.HttpMethod != "POST" || request.Url.AbsolutePath != "/command")
                 {
-                    result = new ErrorResponse($"Expected POST /command, got {request.HttpMethod} {request.Url.AbsolutePath}");
                     response.StatusCode = 400;
+                    await WriteResponse(response, new ErrorResponse($"Expected POST /command, got {request.HttpMethod} {request.Url.AbsolutePath}"));
+                    return;
                 }
-                else if (!ValidateAuth(request))
+
+                if (!ValidateAuth(request))
                 {
-                    result = new ErrorResponse("Unauthorized");
                     response.StatusCode = 401;
+                    await WriteResponse(response, new ErrorResponse("Unauthorized"));
+                    return;
                 }
-                else if (request.ContentLength64 > MaxRequestBodyBytes)
+
+                if (request.ContentLength64 > MaxRequestBodyBytes)
                 {
-                    result = new ErrorResponse($"Request body too large (max {MaxRequestBodyBytes} bytes)");
                     response.StatusCode = 413;
+                    await WriteResponse(response, new ErrorResponse($"Request body too large (max {MaxRequestBodyBytes} bytes)"));
+                    return;
                 }
-                else
+
+                using var reader = new StreamReader(request.InputStream, Encoding.UTF8);
+                var body = await reader.ReadToEndAsync();
+
+                if (body.Length > MaxRequestBodyBytes)
                 {
-                    using var reader = new StreamReader(request.InputStream, Encoding.UTF8);
-                    var body = await reader.ReadToEndAsync();
-                    if (body.Length > MaxRequestBodyBytes)
-                    {
-                        result = new ErrorResponse($"Request body too large (max {MaxRequestBodyBytes} bytes)");
-                        response.StatusCode = 413;
-                    }
-                    else
-                    {
-                        var json = JObject.Parse(body);
-
-                        var command = json["command"]?.ToString();
-                        var parameters = json["params"] as JObject;
-
-                        if (string.IsNullOrEmpty(command))
-                        {
-                            result = new ErrorResponse("Missing 'command' field");
-                            response.StatusCode = 400;
-                        }
-                        else
-                        {
-                            var tcs = new TaskCompletionSource<object>();
-                            s_Queue.Enqueue(new WorkItem
-                            {
-                                Command = command,
-                                Parameters = parameters,
-                                Tcs = tcs,
-                            });
-                            ForceEditorUpdate();
-                            result = await tcs.Task;
-                        }
-                    }
+                    response.StatusCode = 413;
+                    await WriteResponse(response, new ErrorResponse($"Request body too large (max {MaxRequestBodyBytes} bytes)"));
+                    return;
                 }
+
+                var json = JObject.Parse(body);
+                var command = json["command"]?.ToString();
+                var parameters = json["params"] as JObject;
+
+                if (string.IsNullOrEmpty(command))
+                {
+                    response.StatusCode = 400;
+                    await WriteResponse(response, new ErrorResponse("Missing 'command' field"));
+                    return;
+                }
+
+                var tcs = new TaskCompletionSource<object>();
+                s_Queue.Enqueue(new WorkItem
+                {
+                    Command = command,
+                    Parameters = parameters,
+                    Tcs = tcs,
+                });
+                ForceEditorUpdate();
+                await WriteResponse(response, await tcs.Task);
             }
             catch (Exception ex)
             {
-                result = new ErrorResponse($"Request error: {ex.Message}");
                 response.StatusCode = 500;
+                await WriteResponse(response, new ErrorResponse($"Request error: {ex.Message}"));
             }
-
-            var responseJson = JsonConvert.SerializeObject(result);
-            var buffer = Encoding.UTF8.GetBytes(responseJson);
-            response.ContentLength64 = buffer.Length;
-            await response.OutputStream.WriteAsync(buffer, 0, buffer.Length);
-            response.Close();
         }
     }
 }

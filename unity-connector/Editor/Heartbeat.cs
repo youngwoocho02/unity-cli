@@ -96,7 +96,7 @@ namespace UnityCliConnector
                 File.WriteAllText(path, JsonConvert.SerializeObject(status));
 
                 // Keep instances.json in sync so CLI always finds the correct port
-                InstanceRegistry.Register(HttpServer.Port);
+                InstanceRegistry.Register(HttpServer.Port, HttpServer.AuthToken);
             }
             catch
             {

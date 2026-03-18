@@ -1,4 +1,3 @@
-using System.IO;
 using Newtonsoft.Json.Linq;
 using UnityEditor;
 using UnityEngine;
@@ -8,6 +7,8 @@ namespace UnityCliConnector.Tools
     [UnityCliTool(Description = "Force reserialize Unity assets. No params = entire project.")]
     public static class ReserializeAssets
     {
+        static readonly string AssetsRoot = System.IO.Path.GetFullPath("Assets").Replace('\\', '/');
+
         public class Parameters
         {
             [ToolParameter("Single asset path to reserialize")]
@@ -20,12 +21,8 @@ namespace UnityCliConnector.Tools
         static bool IsValidAssetPath(string path)
         {
             if (string.IsNullOrEmpty(path)) return false;
-            // Normalize separators and resolve . / ..
             var normalized = System.IO.Path.GetFullPath(path).Replace('\\', '/');
-            var assetsRoot = System.IO.Path.GetFullPath("Assets").Replace('\\', '/');
-            // After canonicalization, path must be under Assets/
-            if (!normalized.StartsWith(assetsRoot)) return false;
-            // Reject raw paths containing .. (defense-in-depth)
+            if (!normalized.StartsWith(AssetsRoot)) return false;
             if (path.Contains("..")) return false;
             return true;
         }

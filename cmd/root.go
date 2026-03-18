@@ -65,22 +65,16 @@ func Execute() error {
 	case "update":
 		return updateCmd(subArgs)
 	case "status":
-		inst, err := client.DiscoverInstance(flagProject, flagPort)
+		inst, err := discoverAndAuth()
 		if err != nil {
 			return err
-		}
-		if flagToken != "" {
-			inst.Token = flagToken
 		}
 		return statusCmd(inst)
 	}
 
-	inst, err := client.DiscoverInstance(flagProject, flagPort)
+	inst, err := discoverAndAuth()
 	if err != nil {
 		return err
-	}
-	if flagToken != "" {
-		inst.Token = flagToken
 	}
 
 	if err := waitForAlive(inst.Port, flagTimeout); err != nil {
@@ -152,6 +146,17 @@ func Execute() error {
 	}
 
 	return nil
+}
+
+func discoverAndAuth() (*client.Instance, error) {
+	inst, err := client.DiscoverInstance(flagProject, flagPort)
+	if err != nil {
+		return nil, err
+	}
+	if flagToken != "" {
+		inst.Token = flagToken
+	}
+	return inst, nil
 }
 
 // sendFn is the function signature for sending a command to Unity.
