@@ -59,41 +59,56 @@ namespace UnityCliConnector
         public static int Port => s_Port;
         public static string AuthToken => s_AuthToken;
 
+        const string SESSION_PORT_KEY = "UnityCliConnector.Port";
+
         static void Start()
         {
             if (s_Listener != null) return;
 
+            // After domain reload, try to reclaim the same port first
+            var previousPort = SessionState.GetInt(SESSION_PORT_KEY, 0);
+            if (previousPort > 0 && TryStartOnPort(previousPort))
+                return;
+
             for (var attempt = 0; attempt < MAX_PORT_ATTEMPTS; attempt++)
             {
                 var port = DEFAULT_PORT + attempt;
-                try
-                {
-                    var listener = new HttpListener();
-                    listener.Prefixes.Add($"http://127.0.0.1:{port}/");
-                    listener.Start();
-
-                    s_Listener = listener;
-                    s_Port = port;
-                    s_AuthToken = Guid.NewGuid().ToString("N");
-                    s_Cts = new CancellationTokenSource();
-
-                    _ = ListenLoop(s_Cts.Token);
-
-                    InstanceRegistry.Register(port, s_AuthToken);
-                    Debug.Log($"[UnityCliConnector] HTTP server started on port {port}");
+                if (port == previousPort) continue; // already tried
+                if (TryStartOnPort(port))
                     return;
-                }
-                catch (HttpListenerException)
-                {
-                    // Port in use, try next
-                }
-                catch (System.Net.Sockets.SocketException)
-                {
-                    // Windows/Mono throws SocketException instead of HttpListenerException
-                }
             }
 
             Debug.LogError("[UnityCliConnector] Failed to start HTTP server — no available port");
+        }
+
+        static bool TryStartOnPort(int port)
+        {
+            try
+            {
+                var listener = new HttpListener();
+                listener.Prefixes.Add($"http://127.0.0.1:{port}/");
+                listener.Start();
+
+                s_Listener = listener;
+                s_Port = port;
+                s_AuthToken = Guid.NewGuid().ToString("N");
+                s_Cts = new CancellationTokenSource();
+
+                _ = ListenLoop(s_Cts.Token);
+
+                SessionState.SetInt(SESSION_PORT_KEY, port);
+                InstanceRegistry.Register(port, s_AuthToken);
+                Debug.Log($"[UnityCliConnector] HTTP server started on port {port}");
+                return true;
+            }
+            catch (HttpListenerException)
+            {
+                return false;
+            }
+            catch (System.Net.Sockets.SocketException)
+            {
+                return false;
+            }
         }
 
         static void StopListener()
