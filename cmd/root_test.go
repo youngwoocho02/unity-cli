@@ -47,6 +47,8 @@ func TestSplitArgs(t *testing.T) {
 		{"project flag", []string{"--project", "myproj", "status"}, []string{"--project", "myproj"}, []string{"status"}},
 		{"timeout flag", []string{"exec", "--timeout", "5000", "Time.time"}, []string{"--timeout", "5000"}, []string{"exec", "Time.time"}},
 		{"multiple global flags", []string{"--port", "8080", "--timeout", "3000", "exec", "code"}, []string{"--port", "8080", "--timeout", "3000"}, []string{"exec", "code"}},
+		{"token flag", []string{"--token", "abc123", "exec", "code"}, []string{"--token", "abc123"}, []string{"exec", "code"}},
+		{"token with other flags", []string{"--port", "8080", "--token", "secret", "status"}, []string{"--port", "8080", "--token", "secret"}, []string{"status"}},
 	}
 
 	for _, tt := range tests {
