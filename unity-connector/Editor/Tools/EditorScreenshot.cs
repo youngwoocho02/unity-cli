@@ -1,13 +1,12 @@
 using System;
 using System.IO;
-using System.Reflection;
 using Newtonsoft.Json.Linq;
 using UnityEditor;
 using UnityEngine;
 
 namespace UnityCliConnector.Tools
 {
-    [UnityCliTool(Description = "Capture a screenshot of the Unity editor. Views: scene, game, focused, full.")]
+    [UnityCliTool(Description = "Capture a screenshot of the Unity editor. Views: scene, game.")]
     public static class EditorScreenshot
     {
         private const int DefaultWidth = 1920;
@@ -15,13 +14,13 @@ namespace UnityCliConnector.Tools
 
         public class Parameters
         {
-            [ToolParameter("View to capture: scene (default), game, focused, full", Required = false)]
+            [ToolParameter("View to capture: scene (default), game", Required = false)]
             public string View { get; set; }
 
-            [ToolParameter("Override width for scene/game captures (default 1920)", Required = false)]
+            [ToolParameter("Override width (default 1920)", Required = false)]
             public int Width { get; set; }
 
-            [ToolParameter("Override height for scene/game captures (default 1080)", Required = false)]
+            [ToolParameter("Override height (default 1080)", Required = false)]
             public int Height { get; set; }
 
             [ToolParameter("Output file path, absolute or relative to project root (default: Screenshots/screenshot.png)", Required = false)]
@@ -51,12 +50,8 @@ namespace UnityCliConnector.Tools
                         return CaptureSceneView(width, height, outputPath);
                     case "game":
                         return CaptureGameView(width, height, outputPath);
-                    case "focused":
-                        return CaptureFocusedWindow(outputPath);
-                    case "full":
-                        return CaptureFullEditor(outputPath);
                     default:
-                        return new ErrorResponse($"Unknown view '{view}'. Valid: scene, game, focused, full.");
+                        return new ErrorResponse($"Unknown view '{view}'. Valid: scene, game.");
                 }
             }
             catch (Exception e)
@@ -73,7 +68,6 @@ namespace UnityCliConnector.Tools
             if (Path.IsPathRooted(userPath))
                 return Path.GetFullPath(userPath);
 
-            // Application.dataPath == {project}/Assets — go up one level for project root
             var projectRoot = Path.GetDirectoryName(Application.dataPath);
             return Path.GetFullPath(Path.Combine(projectRoot, userPath));
         }
@@ -137,102 +131,6 @@ namespace UnityCliConnector.Tools
                 if (rt) UnityEngine.Object.DestroyImmediate(rt);
                 if (tex) UnityEngine.Object.DestroyImmediate(tex);
             }
-        }
-
-        // NOTE: focused and full modes read pixels directly from the screen.
-        // The Unity editor must be visible (not occluded by other windows) for
-        // these modes to produce correct results.
-
-        private static object CaptureFocusedWindow(string outputPath)
-        {
-            var window = EditorWindow.focusedWindow;
-            if (!window)
-                return new ErrorResponse("No focused EditorWindow found.");
-
-            return CaptureWindowRect(window.position, "focused window", outputPath);
-        }
-
-        private static object CaptureFullEditor(string outputPath)
-        {
-            var rect = GetMainEditorWindowRect();
-            if (!rect.HasValue)
-                return new ErrorResponse("Could not find main editor window via reflection.");
-
-            return CaptureWindowRect(rect.Value, "full editor", outputPath);
-        }
-
-        private static object CaptureWindowRect(Rect rect, string description, string outputPath)
-        {
-            var w = (int)rect.width;
-            var h = (int)rect.height;
-
-            if (w <= 0 || h <= 0)
-                return new ErrorResponse($"Invalid window rect: {w}x{h}");
-
-            var colors = UnityEditorInternal.InternalEditorUtility.ReadScreenPixel(
-                new Vector2(rect.x, rect.y), w, h);
-
-            Texture2D tex = null;
-            try
-            {
-                tex = new Texture2D(w, h, TextureFormat.RGB24, false);
-                tex.SetPixels(colors);
-
-                // ReadScreenPixel returns bottom-up; flip for correct orientation in PNG
-                FlipTextureVertically(tex);
-                tex.Apply();
-
-                File.WriteAllBytes(outputPath, tex.EncodeToPNG());
-
-                return new SuccessResponse($"Screenshot of {description} saved to {outputPath}",
-                    new { path = outputPath, width = w, height = h });
-            }
-            finally
-            {
-                if (tex) UnityEngine.Object.DestroyImmediate(tex);
-            }
-        }
-
-        private static void FlipTextureVertically(Texture2D tex)
-        {
-            var pixels = tex.GetPixels();
-            var w = tex.width;
-            var h = tex.height;
-            var flipped = new Color[pixels.Length];
-
-            for (var y = 0; y < h; y++)
-            {
-                Array.Copy(pixels, y * w, flipped, (h - 1 - y) * w, w);
-            }
-
-            tex.SetPixels(flipped);
-        }
-
-        private static Rect? GetMainEditorWindowRect()
-        {
-            // ContainerWindow is internal — access via reflection
-            var containerWindowType = typeof(EditorWindow).Assembly.GetType("UnityEditor.ContainerWindow");
-            if (containerWindowType == null)
-                return null;
-
-            var showModeField = containerWindowType.GetField("m_ShowMode",
-                BindingFlags.NonPublic | BindingFlags.Instance);
-            var positionProp = containerWindowType.GetProperty("position",
-                BindingFlags.Public | BindingFlags.Instance);
-
-            if (showModeField == null || positionProp == null)
-                return null;
-
-            var windows = Resources.FindObjectsOfTypeAll(containerWindowType);
-            foreach (var w in windows)
-            {
-                // ShowMode 4 = MainWindow
-                var mode = (int)showModeField.GetValue(w);
-                if (mode == 4)
-                    return (Rect)positionProp.GetValue(w);
-            }
-
-            return null;
         }
     }
 }
