@@ -103,6 +103,8 @@ func Execute() error {
 		resp, err = menuCmd(subArgs, send)
 	case "reserialize":
 		resp, err = reserializeCmd(subArgs, send)
+	case "screenshot":
+		resp, err = screenshotCmd(subArgs, send)
 	case "test":
 		// No timeout — EditMode holds connection open until tests finish
 		testSend := func(command string, params interface{}) (*client.CommandResponse, error) {
@@ -285,6 +287,11 @@ Menu:
     menu "File/Save Project"
     menu "Assets/Refresh"
 
+Screenshot:
+  screenshot                     Capture scene view (default)
+  screenshot --view game         Capture game view
+  screenshot --output <path>     Custom output path
+
 Reserialize:
   reserialize [path...]          Force reserialize (no args = entire project)
 
@@ -411,6 +418,24 @@ Examples:
   unity-cli menu "Window/General/Console"
 
 Note: File/Quit is blocked for safety.
+`)
+	case "screenshot":
+		fmt.Print(`Usage: unity-cli screenshot [options]
+
+Capture a screenshot of the Unity editor.
+
+Options:
+  --view <mode>      scene (default), game
+  --width <N>        Image width in pixels (default: 1920)
+  --height <N>       Image height in pixels (default: 1080)
+  --output <path>    Output path, absolute or relative to project root
+                     (default: Screenshots/screenshot.png)
+
+Examples:
+  unity-cli screenshot
+  unity-cli screenshot --view game
+  unity-cli screenshot --view scene --width 3840 --height 2160
+  unity-cli screenshot --output captures/my_scene.png
 `)
 	case "reserialize":
 		fmt.Print(`Usage: unity-cli reserialize [path...]
