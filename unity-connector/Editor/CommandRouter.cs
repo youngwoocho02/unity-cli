@@ -30,7 +30,7 @@ namespace UnityCliConnector
 
         static async Task<object> DispatchInternal(string command, JObject parameters)
         {
-            if (command == "list_tools")
+            if (command == "list")
                 return new SuccessResponse("Available tools", ToolDiscovery.GetToolSchemas());
 
             var handler = ToolDiscovery.FindHandler(command);
