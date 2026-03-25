@@ -189,28 +189,20 @@ namespace UnityCliConnector.Tools
             // Fallback to MonoBleedingEdge (older Unity versions, Unity 6000.x)
             var monoBleedingEdge = Path.Combine(content, "MonoBleedingEdge");
 
+            // Use mono to execute csc.exe directly (wrapper scripts have broken paths)
+            string monoBin = null;
             if (Application.platform == RuntimePlatform.WindowsEditor)
-            {
-                var cscExe = Path.Combine(monoBleedingEdge, "bin", "csc.exe");
-                if (File.Exists(cscExe))
-                    return (cscExe, rspArg);
-            }
+                monoBin = Path.Combine(monoBleedingEdge, "bin", "mono.exe");
             else if (Application.platform == RuntimePlatform.LinuxEditor)
-            {
-                // Try bin-linux64 first, then bin
-                var cscBin = Path.Combine(monoBleedingEdge, "bin-linux64", "csc");
-                if (File.Exists(cscBin))
-                    return (cscBin, rspArg);
-
-                cscBin = Path.Combine(monoBleedingEdge, "bin", "csc");
-                if (File.Exists(cscBin))
-                    return (cscBin, rspArg);
-            }
+                monoBin = Path.Combine(monoBleedingEdge, "bin-linux64", "mono");
             else if (Application.platform == RuntimePlatform.OSXEditor)
+                monoBin = Path.Combine(monoBleedingEdge, "bin", "mono");
+
+            if (monoBin != null && File.Exists(monoBin))
             {
-                var cscBin = Path.Combine(monoBleedingEdge, "bin", "csc");
-                if (File.Exists(cscBin))
-                    return (cscBin, rspArg);
+                var cscExe = Path.Combine(monoBleedingEdge, "lib", "mono", "4.5", "csc.exe");
+                if (File.Exists(cscExe))
+                    return (monoBin, $"\"{cscExe}\" {rspArg}");
             }
 
             return (null, null);
