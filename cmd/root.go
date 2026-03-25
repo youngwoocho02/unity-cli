@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
+	"io"
 	"os"
 	"strconv"
 	"strings"
@@ -91,13 +92,18 @@ func Execute() error {
 	switch category {
 	case "editor":
 		resp, err = editorCmd(subArgs, send, inst.Port)
-	case "list":
-		resp, err = send("list_tools", map[string]interface{}{})
 	case "test":
 		testSend := func(command string, params interface{}) (*client.CommandResponse, error) {
 			return client.Send(inst, command, params, 0)
 		}
 		resp, err = testCmd(subArgs, testSend, inst.Port)
+	case "exec":
+		subArgs = readStdinIfPiped(subArgs)
+		var params map[string]interface{}
+		params, err = buildParams(subArgs, nil)
+		if err == nil {
+			resp, err = send("exec", params)
+		}
 	default:
 		var params map[string]interface{}
 		params, err = buildParams(subArgs, nil)
@@ -230,6 +236,23 @@ func buildParams(args []string, base map[string]interface{}) (map[string]interfa
 	return params, nil
 }
 
+// readStdinIfPiped reads stdin when piped and prepends it as the first positional arg.
+func readStdinIfPiped(args []string) []string {
+	info, err := os.Stdin.Stat()
+	if err != nil {
+		return args
+	}
+	if info.Mode()&os.ModeCharDevice != 0 {
+		return args // interactive terminal, not piped
+	}
+	data, err := io.ReadAll(os.Stdin)
+	if err != nil || len(data) == 0 {
+		return args
+	}
+	code := strings.TrimRight(string(data), "\n\r")
+	return append([]string{code}, args...)
+}
+
 // splitArgs separates global flags (--port, --project, --timeout) from subcommand args.
 // Global flags must be parsed by flag.CommandLine before the subcommand runs.
 func splitArgs(args []string) (flags, commands []string) {
@@ -267,7 +290,8 @@ Console:
   console --clear               Clear console
 
 Execute C#:
-  exec "<code>"                 Run C# code in Unity (single expression auto-returns)
+  exec "<code>"                 Run C# code in Unity (return required for output)
+  echo '<code>' | exec          Pipe code via stdin (avoids shell escaping)
   exec "<code>" --usings x,y    Add extra using directives
 
   Examples:
@@ -386,22 +410,29 @@ Examples:
 Execute C# code inside Unity Editor. Full access to UnityEngine,
 UnityEditor, and all loaded assemblies.
 
-Single expressions auto-return their result.
-Multi-statement code needs an explicit 'return' statement.
+Use 'return' to get output. Add --usings for types outside default namespaces.
 
 Options:
   --usings <ns1,ns2>   Add extra using directives
 
+Default usings: System, System.Collections.Generic, System.IO, System.Linq,
+  System.Reflection, System.Threading.Tasks, UnityEngine,
+  UnityEngine.SceneManagement, UnityEditor, UnityEditor.SceneManagement,
+  UnityEditorInternal
+
 Examples:
-  unity-cli exec "Time.time"
-  unity-cli exec "Application.dataPath"
-  unity-cli exec "EditorSceneManager.GetActiveScene().name" --usings UnityEditor.SceneManagement
-  unity-cli exec "var go = new GameObject(\"Test\"); return go.name;"
-  unity-cli exec "World.All.Count" --usings Unity.Entities
+  unity-cli exec "return 1+1;"
+  unity-cli exec "return Application.dataPath;"
+  echo 'return EditorSceneManager.GetActiveScene().name;' | unity-cli exec
+  echo 'Debug.Log("hello"); return null;' | unity-cli exec
+  unity-cli exec "return World.All.Count;" --usings Unity.Entities
+
+Stdin:
+  Pipe code via stdin to avoid shell escaping issues.
+  echo '<code>' | unity-cli exec [--usings ns1,ns2]
 
 Notes:
-  - Strings inside code need escaped quotes: \"text\"
-  - Compilation errors are returned in the response message
+  - Use 'return' for output, 'return null;' for void operations
 `)
 	case "menu":
 		fmt.Print(`Usage: unity-cli menu "<path>"

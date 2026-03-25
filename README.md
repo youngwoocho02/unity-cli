@@ -93,7 +93,7 @@ unity-cli status
 unity-cli editor play --wait
 
 # Run C# code inside Unity
-unity-cli exec "Application.dataPath"
+unity-cli exec "return Application.dataPath;"
 
 # Read console logs
 unity-cli console --filter error,warning,log
@@ -200,30 +200,19 @@ unity-cli console --clear
 
 Run arbitrary C# code inside the Unity Editor at runtime. This is the most powerful command — it gives you full access to UnityEngine, UnityEditor, ECS, and every loaded assembly. No need to write a custom tool for one-off queries or mutations.
 
-Single expressions auto-return their result. Multi-statement code needs an explicit `return`.
+Use `return` to get output. Common namespaces are included by default. Add `--usings` only for project-specific types (e.g. `Unity.Entities`).
 
 ```bash
-# Simple expressions
-unity-cli exec "Time.time"
-unity-cli exec "Application.dataPath"
-unity-cli exec "EditorSceneManager.GetActiveScene().name" --usings UnityEditor.SceneManagement
+unity-cli exec "return Application.dataPath;"
+unity-cli exec "return EditorSceneManager.GetActiveScene().name;"
+unity-cli exec "return World.All.Count;" --usings Unity.Entities
 
-# Query game objects
-unity-cli exec "GameObject.FindObjectsOfType<Camera>().Length"
-unity-cli exec "Selection.activeGameObject?.name ?? \"nothing selected\""
-
-# Multi-statement (explicit return)
-unity-cli exec "var go = new GameObject(\"Marker\"); go.tag = \"EditorOnly\"; return go.name;"
-
-# ECS world inspection with extra usings
-unity-cli exec "World.All.Count" --usings Unity.Entities
-unity-cli exec "var sb = new System.Text.StringBuilder(); foreach(var w in World.All) sb.AppendLine(w.Name); return sb.ToString();" --usings Unity.Entities
-
-# Modify project settings at runtime
-unity-cli exec "PlayerSettings.bundleVersion = \"1.2.3\"; return PlayerSettings.bundleVersion;"
+# Pipe via stdin to avoid shell escaping issues
+echo 'Debug.Log("hello"); return null;' | unity-cli exec
+echo 'var go = new GameObject("Marker"); go.tag = "EditorOnly"; return go.name;' | unity-cli exec
 ```
 
-Because `exec` compiles and runs real C#, it can do anything a custom tool can — inspect ECS entities, modify assets, call internal APIs, run editor utilities. For AI agents, this means **zero-friction access to Unity's entire runtime** without writing a single line of tool code.
+Because `exec` compiles and runs real C#, it can do anything a custom tool can — inspect ECS entities, modify assets, call internal APIs, run editor utilities. For AI agents, this means **zero-friction access to Unity's entire runtime** without writing a single line of tool code. Piping via stdin avoids shell escaping headaches with complex code.
 
 ### Menu Items
 
@@ -371,13 +360,11 @@ Create a static class with `[UnityCliTool]` attribute in any Editor assembly. Th
 ```csharp
 using UnityCliConnector;
 using Newtonsoft.Json.Linq;
+using UnityEngine;
 
-[UnityCliTool(Description = "Spawn an enemy at a position")]
+[UnityCliTool(Name = "spawn", Description = "Spawn an enemy at a position", Group = "gameplay")]
 public static class SpawnEnemy
 {
-    // Command name auto-derived: "spawn_enemy"
-    // Call with: unity-cli spawn_enemy --params '{"x":1,"y":0,"z":5}'
-
     public class Parameters
     {
         [ToolParameter("X world position", Required = true)]
@@ -389,16 +376,17 @@ public static class SpawnEnemy
         [ToolParameter("Z world position", Required = true)]
         public float Z { get; set; }
 
-        [ToolParameter("Prefab name in Resources folder")]
+        [ToolParameter("Prefab name in Resources folder", DefaultValue = "Enemy")]
         public string Prefab { get; set; }
     }
 
     public static object HandleCommand(JObject parameters)
     {
-        float x = parameters["x"]?.Value<float>() ?? 0;
-        float y = parameters["y"]?.Value<float>() ?? 0;
-        float z = parameters["z"]?.Value<float>() ?? 0;
-        string prefabName = parameters["prefab"]?.Value<string>() ?? "Enemy";
+        var p = new ToolParams(parameters);
+        float x = p.GetFloat("x", 0);
+        float y = p.GetFloat("y", 0);
+        float z = p.GetFloat("z", 0);
+        string prefabName = p.Get("prefab", "Enemy");
 
         var prefab = Resources.Load<GameObject>(prefabName);
         var instance = Object.Instantiate(prefab, new Vector3(x, y, z), Quaternion.identity);
@@ -412,7 +400,31 @@ public static class SpawnEnemy
 }
 ```
 
-The `Parameters` class is optional but recommended. When present, `unity-cli list` exposes parameter names, types, descriptions, and required flags — so AI assistants can discover how to call your tool without reading the source code.
+Call it directly with flags or JSON:
+
+```bash
+unity-cli spawn --x 1 --y 0 --z 5 --prefab Goblin
+unity-cli spawn --params '{"x":1,"y":0,"z":5,"prefab":"Goblin"}'
+```
+
+**Key points:**
+
+- **Name**: without `Name`, auto-derived from class name (`SpawnEnemy` → `spawn_enemy`, `UITree` → `ui_tree`). With `Name = "spawn"`, the command becomes `unity-cli spawn`.
+- **Parameters class**: optional but recommended. `unity-cli list` uses it to expose parameter names, types, descriptions, and required flags — so AI assistants can discover your tool without reading the source.
+- **ToolParams**: use `p.Get()`, `p.GetInt()`, `p.GetFloat()`, `p.GetBool()`, `p.GetRaw()` for consistent param reading.
+- **Discovery**: `unity-cli list` shows built-in tools first (`group: "built-in"`), then custom tools (`group: "custom"`) detected from the connected Unity project.
+
+**Attribute reference:**
+
+| Attribute | Property | Description |
+|---|---|---|
+| `[UnityCliTool]` | `Name` | Command name override (default: class name → snake_case) |
+| | `Description` | Tool description shown in `list` |
+| | `Group` | Group name for categorization |
+| `[ToolParameter]` | `Description` | Parameter description (constructor arg) |
+| | `Required` | Whether the parameter is required (default: `false`) |
+| | `Name` | Parameter name override |
+| | `DefaultValue` | Default value hint |
 
 ### Rules
 
