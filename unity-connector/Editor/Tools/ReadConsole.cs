@@ -55,7 +55,7 @@ namespace UnityCliConnector.Tools
 
         public class Parameters
         {
-            [ToolParameter("Filter: comma-separated log types (error, warning, log). Default: error,warning")]
+            [ToolParameter("Filter: comma-separated log types (error, warning, log). Default: error,warning,log")]
             public string Filter { get; set; }
 
             [ToolParameter("Maximum number of log entries to return")]
@@ -90,7 +90,7 @@ namespace UnityCliConnector.Tools
                 return new SuccessResponse("Console cleared.");
             }
 
-            var filter = p.Get("filter", "error,warning").ToLower();
+            var filter = p.Get("filter", "error,warning,log").ToLower();
             var types = filter.Split(',').Select(t => t.Trim()).Where(t => t.Length > 0).ToList();
 
             int? count = p.GetInt("lines") ?? p.GetInt("count");
