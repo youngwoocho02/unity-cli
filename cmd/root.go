@@ -390,7 +390,7 @@ Read Unity console log entries.
 
 Options:
   --lines <N>          Limit to N entries
-  --filter <types>     Comma-separated log types: error, warning, log (default: error,warning)
+  --filter <types>     Comma-separated log types: error, warning, log (default: error,warning,log)
   --filter_text <str>  Filter log messages containing this text
   --stacktrace <mode>  none: first line only (default)
                         short: with stack trace, internal frames filtered
