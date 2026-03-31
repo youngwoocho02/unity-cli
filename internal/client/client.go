@@ -3,9 +3,12 @@ package client
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -154,6 +157,14 @@ func Send(inst *Instance, command string, params interface{}, timeoutMs int) (*C
 
 	resp, err := httpClient.Post(url, "application/json", bytes.NewReader(body))
 	if err != nil {
+		// 연결이 끊어진 경우: Unity가 도메인 리로드(에셋 변경 등)로 HTTP 서버를
+		// 재시작했을 가능성. 커맨드 자체는 실행됐을 수 있으므로 성공으로 간주.
+		if isConnectionReset(err) {
+			return &CommandResponse{
+				Success: true,
+				Message: fmt.Sprintf("%s sent (Unity reloaded before response)", command),
+			}, nil
+		}
 		return nil, fmt.Errorf("cannot connect to Unity at port %d: %v", inst.Port, err)
 	}
 	defer resp.Body.Close()
@@ -186,4 +197,36 @@ func Send(inst *Instance, command string, params interface{}, timeoutMs int) (*C
 	}
 
 	return &result, nil
+}
+
+// isConnectionReset checks if the error is a connection reset/EOF,
+// which happens when Unity's HTTP server restarts during domain reload.
+func isConnectionReset(err error) bool {
+	if err == nil {
+		return false
+	}
+
+	// EOF (connection closed cleanly)
+	if errors.Is(err, io.EOF) {
+		return true
+	}
+
+	// "connection reset by peer" (TCP RST)
+	var netErr *net.OpError
+	if errors.As(err, &netErr) {
+		return true
+	}
+
+	// url.Error wraps transport errors
+	var urlErr *url.Error
+	if errors.As(err, &urlErr) {
+		return isConnectionReset(urlErr.Err)
+	}
+
+	// Fallback: check error message
+	msg := err.Error()
+	return strings.Contains(msg, "connection reset") ||
+		strings.Contains(msg, "EOF") ||
+		strings.Contains(msg, "forcibly closed") ||
+		strings.Contains(msg, "broken pipe")
 }
