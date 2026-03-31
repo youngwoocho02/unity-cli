@@ -61,7 +61,7 @@ namespace UnityCliConnector.Tools
             [ToolParameter("Maximum number of log entries to return")]
             public int Lines { get; set; }
 
-            [ToolParameter("Stack trace mode: none (first line), short (filtered), full (raw). Default: none")]
+            [ToolParameter("Stack trace mode: none (first line), user (user code frames only), full (raw). Default: user")]
             public string Stacktrace { get; set; }
 
             [ToolParameter("Clear console")]
@@ -91,7 +91,7 @@ namespace UnityCliConnector.Tools
             var types = type.Split(',').Select(t => t.Trim()).Where(t => t.Length > 0).ToList();
 
             int? count = p.GetInt("lines") ?? p.GetInt("count");
-            string stacktrace = p.Get("stacktrace", "none").ToLower();
+            string stacktrace = p.Get("stacktrace", "user").ToLower();
 
             return GetEntries(types, count, stacktrace);
         }
@@ -139,7 +139,7 @@ namespace UnityCliConnector.Tools
                 case "full":
                     return message;
 
-                case "short":
+                case "user":
                     var lines = message.Split(new[] { '\n', '\r' }, StringSplitOptions.RemoveEmptyEntries);
                     var sb = new System.Text.StringBuilder();
                     foreach (var line in lines)

@@ -189,8 +189,8 @@ unity-cli console --lines 20 --filter error,warning,log
 # 에러만 읽기
 unity-cli console --type error
 
-# 스택 트레이스 포함 (short: 내부 프레임 필터링, full: 원본 그대로)
-unity-cli console --stacktrace short
+# 스택 트레이스 포함 (user: 유저 코드만, full: 원본 그대로)
+unity-cli console --stacktrace user
 
 # 콘솔 지우기
 unity-cli console --clear

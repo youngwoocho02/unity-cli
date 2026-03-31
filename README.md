@@ -189,8 +189,8 @@ unity-cli console --lines 20 --filter error,warning,log
 # Read only errors
 unity-cli console --type error
 
-# Include stack traces (short: filtered, full: raw)
-unity-cli console --stacktrace short
+# Include stack traces (user: user code only, full: raw)
+unity-cli console --stacktrace user
 
 # Clear console
 unity-cli console --clear
