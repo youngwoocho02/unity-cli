@@ -44,10 +44,18 @@ namespace UnityCliConnector.Tools
             if (!actionResult.IsSuccess)
                 return new ErrorResponse(actionResult.ErrorMessage);
 
+            // 읽기 전용 액션
             switch (actionResult.Value.ToLowerInvariant())
             {
                 case "search": return Search(p);
                 case "get_info": return GetInfo(p);
+            }
+
+            // 변경 액션
+            // Note: create_folder, delete 등은 AssetDatabase 변경으로 도메인 리로드가
+            // 발생할 수 있어 HTTP 응답이 유실될 수 있음. 동작 자체는 정상 수행됨.
+            switch (actionResult.Value.ToLowerInvariant())
+            {
                 case "import": return Import(p);
                 case "delete": return Delete(p);
                 case "create_folder": return CreateFolder(p);

@@ -10,7 +10,7 @@ namespace UnityCliConnector.Tools
     // GO 검색, Vector3 파싱, 컴포넌트 타입 해석 유틸
     public static class GameObjectResolver
     {
-        // instance_id → path → name 순서로 GO 탐색
+        // instance_id → path → name 순서로 GO 탐색 (비활성 포함)
         public static Result<GameObject> Resolve(ToolParams p)
         {
             int? instanceId = p.GetInt("instance_id");
@@ -23,7 +23,7 @@ namespace UnityCliConnector.Tools
 
             string name = p.Get("name");
             if (!string.IsNullOrEmpty(name))
-                return ResolveByPath(name);
+                return ResolveByName(name);
 
             return Result<GameObject>.Error("Provide 'instance_id', 'path', or 'name' to identify the GameObject.");
         }
@@ -38,10 +38,50 @@ namespace UnityCliConnector.Tools
 
         public static Result<GameObject> ResolveByPath(string path)
         {
+            // GameObject.Find는 활성 오브젝트만 검색
             var go = GameObject.Find(path);
-            if (go == null)
-                return Result<GameObject>.Error($"No GameObject found at '{path}'.");
-            return Result<GameObject>.Success(go);
+            if (go != null)
+                return Result<GameObject>.Success(go);
+
+            // 비활성 포함 전수 스캔 (계층 경로 매칭)
+            var all = Resources.FindObjectsOfTypeAll<GameObject>();
+            foreach (var candidate in all)
+            {
+                // 씬 오브젝트만 (에셋 제외)
+                if (!IsSceneObject(candidate)) continue;
+                if (GetHierarchyPath(candidate.transform) == path)
+                    return Result<GameObject>.Success(candidate);
+            }
+
+            return Result<GameObject>.Error($"No GameObject found at '{path}'.");
+        }
+
+        // 이름으로 검색 (비활성 포함)
+        public static Result<GameObject> ResolveByName(string name)
+        {
+            // 활성 오브젝트 우선
+            var go = GameObject.Find(name);
+            if (go != null)
+                return Result<GameObject>.Success(go);
+
+            // 비활성 포함 전수 스캔
+            var all = Resources.FindObjectsOfTypeAll<GameObject>();
+            foreach (var candidate in all)
+            {
+                if (!IsSceneObject(candidate)) continue;
+                if (candidate.name == name)
+                    return Result<GameObject>.Success(candidate);
+            }
+
+            return Result<GameObject>.Error($"No GameObject found with name '{name}'.");
+        }
+
+        // 씬 오브젝트인지 판별 (프리팹 에셋/HideFlags 제외)
+        static bool IsSceneObject(GameObject go)
+        {
+            if (go.scene.rootCount == 0 || !go.scene.isLoaded) return false;
+            if (go.hideFlags == HideFlags.NotEditable || go.hideFlags == HideFlags.HideAndDontSave) return false;
+            return !EditorUtility.IsPersistent(go);
         }
 
         // Transform → 계층 경로 문자열
