@@ -225,6 +225,7 @@ namespace UnityCliConnector.Tools
             var candidates = new[]
             {
                 Path.Combine(content, "NetCoreRuntime", $"dotnet{ext}"),
+                Path.Combine(content, "Resources", "Scripting", "NetCoreRuntime", $"dotnet{ext}"),
                 Path.Combine(content, "DotNetRuntimeDownloaded", $"dotnet{ext}"),
                 $"dotnet{ext}",
             };
