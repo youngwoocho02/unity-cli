@@ -204,10 +204,7 @@ func Send(inst *Instance, command string, params interface{}, timeoutMs int) (*C
 		// likely executed before the reload, so treat as success.
 		// Related: https://github.com/youngwoocho02/unity-cli/issues/20
 		if isConnectionReset(err) {
-			return &CommandResponse{
-				Success: true,
-				Message: fmt.Sprintf("%s sent (Unity reloaded before response)", command),
-			}, nil
+			return waitForHeartbeatRecovery(inst.Port, command)
 		}
 		return nil, fmt.Errorf("cannot connect to Unity at port %d: %v", inst.Port, err)
 	}
@@ -224,11 +221,9 @@ func Send(inst *Instance, command string, params interface{}, timeoutMs int) (*C
 
 	respBody, err := io.ReadAll(resp.Body)
 	if err != nil || len(respBody) == 0 {
-		// Some commands (e.g. play mode entry) close the connection before responding.
-		return &CommandResponse{
-			Success: true,
-			Message: fmt.Sprintf("%s sent (connection closed before response)", command),
-		}, nil
+		// Connection closed before response — likely domain reload.
+		// Wait for heartbeat to confirm Unity recovered.
+		return waitForHeartbeatRecovery(inst.Port, command)
 	}
 
 	var result CommandResponse
@@ -241,6 +236,50 @@ func Send(inst *Instance, command string, params interface{}, timeoutMs int) (*C
 	}
 
 	return &result, nil
+}
+
+// waitForHeartbeatRecovery polls the heartbeat file after a connection reset
+// to determine whether Unity successfully reloaded or died.
+// Returns success if Unity comes back to "ready" state, error if it doesn't.
+func waitForHeartbeatRecovery(port int, command string) (*CommandResponse, error) {
+	deadline := time.Now().Add(30 * time.Second)
+
+	for time.Now().Before(deadline) {
+		time.Sleep(500 * time.Millisecond)
+
+		inst, err := FindActiveByPort(port)
+		if err != nil {
+			// Instance file gone or stopped — Unity might have crashed
+			continue
+		}
+
+		// Check if heartbeat is fresh (updated within last 2 seconds)
+		age := time.Now().UnixMilli() - inst.Timestamp
+		if age > 2000 {
+			// Heartbeat stale — Unity still reloading
+			continue
+		}
+
+		switch inst.State {
+		case "ready":
+			// Unity reloaded and is ready — command executed successfully
+			return &CommandResponse{
+				Success: true,
+				Message: fmt.Sprintf("%s completed (Unity reloaded, now ready)", command),
+			}, nil
+		case "compiling", "reloading", "refreshing":
+			// Still in progress — keep waiting
+			continue
+		case "stopped":
+			return nil, fmt.Errorf("Unity stopped after %s", command)
+		}
+	}
+
+	// Timed out but command likely executed before the reload
+	return &CommandResponse{
+		Success: true,
+		Message: fmt.Sprintf("%s sent (Unity reload timed out, command likely executed)", command),
+	}, nil
 }
 
 // isConnectionReset checks if the error indicates a connection reset or EOF,
