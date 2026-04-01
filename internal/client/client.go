@@ -3,9 +3,12 @@ package client
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -196,6 +199,16 @@ func Send(inst *Instance, command string, params interface{}, timeoutMs int) (*C
 
 	resp, err := httpClient.Post(url, "application/json", bytes.NewReader(body))
 	if err != nil {
+		// Connection reset/EOF during request: Unity may have restarted
+		// due to domain reload (e.g. AssetDatabase changes). The command
+		// likely executed before the reload, so treat as success.
+		// Related: https://github.com/youngwoocho02/unity-cli/issues/20
+		if isConnectionReset(err) {
+			return &CommandResponse{
+				Success: true,
+				Message: fmt.Sprintf("%s sent (Unity reloaded before response)", command),
+			}, nil
+		}
 		return nil, fmt.Errorf("cannot connect to Unity at port %d: %v", inst.Port, err)
 	}
 	defer resp.Body.Close()
@@ -228,4 +241,33 @@ func Send(inst *Instance, command string, params interface{}, timeoutMs int) (*C
 	}
 
 	return &result, nil
+}
+
+// isConnectionReset checks if the error indicates a connection reset or EOF,
+// which typically happens when Unity's HTTP server restarts during domain reload
+// (e.g. after AssetDatabase changes trigger script recompilation).
+func isConnectionReset(err error) bool {
+	if err == nil {
+		return false
+	}
+
+	if errors.Is(err, io.EOF) {
+		return true
+	}
+
+	var netErr *net.OpError
+	if errors.As(err, &netErr) {
+		return true
+	}
+
+	var urlErr *url.Error
+	if errors.As(err, &urlErr) {
+		return isConnectionReset(urlErr.Err)
+	}
+
+	msg := err.Error()
+	return strings.Contains(msg, "connection reset") ||
+		strings.Contains(msg, "EOF") ||
+		strings.Contains(msg, "forcibly closed") ||
+		strings.Contains(msg, "broken pipe")
 }
