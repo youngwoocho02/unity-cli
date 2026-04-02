@@ -44,14 +44,7 @@ namespace UnityCliConnector
             EditorApplication.quitting += Stop;
             AssemblyReloadEvents.beforeAssemblyReload += StopListener;
             AssemblyReloadEvents.afterAssemblyReload += Start;
-            EditorApplication.projectChanged += Restart;
             EditorApplication.update += ProcessQueue;
-        }
-
-        static void Restart()
-        {
-            StopListener();
-            Start();
         }
 
         public static int Port => s_Port;
