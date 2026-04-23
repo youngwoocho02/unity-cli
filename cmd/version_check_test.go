@@ -2,63 +2,168 @@ package cmd
 
 import (
 	"encoding/json"
+	"errors"
+	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
 
-func TestIsNewer(t *testing.T) {
-	tests := []struct {
-		latest, current string
-		want            bool
-	}{
-		{"v1.1.0", "v1.0.0", true},
-		{"v2.0.0", "v1.9.9", true},
-		{"v1.0.1", "v1.0.0", true},
-		{"v1.0.0", "v1.0.0", false},
-		{"v1.0.0", "v1.0.1", false},
-		{"v0.9.0", "v1.0.0", false},
-		{"v1.10.0", "v1.9.0", true},
+func captureStderr(t *testing.T, fn func()) string {
+	t.Helper()
+	orig := os.Stderr
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("pipe: %v", err)
 	}
-	for _, tt := range tests {
-		got := isNewer(tt.latest, tt.current)
-		if got != tt.want {
-			t.Errorf("isNewer(%q, %q) = %v, want %v", tt.latest, tt.current, got, tt.want)
-		}
+	os.Stderr = w
+	t.Cleanup(func() { os.Stderr = orig })
+
+	fn()
+
+	_ = w.Close()
+	data, err := io.ReadAll(r)
+	if err != nil {
+		t.Fatalf("read stderr: %v", err)
+	}
+	return string(data)
+}
+
+func prepareVersionCheckEnv(t *testing.T, version string) string {
+	t.Helper()
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+
+	origVersion := Version
+	Version = version
+	t.Cleanup(func() { Version = origVersion })
+
+	origFetch := fetchLatestReleaseFn
+	t.Cleanup(func() { fetchLatestReleaseFn = origFetch })
+
+	return filepath.Join(home, ".unity-cli", "version-check.json")
+}
+
+func TestPrintUpdateNotice_UsesCachedOutdatedNoticeWithinInterval(t *testing.T) {
+	path := prepareVersionCheckEnv(t, "v0.3.10")
+	saveCache(path, &versionCache{
+		CheckedAt: time.Now().Unix(),
+		Latest:    "v0.3.11",
+		Outdated:  true,
+	})
+
+	fetchCalled := false
+	fetchLatestReleaseFn = func() (*ghRelease, error) {
+		fetchCalled = true
+		return &ghRelease{TagName: "v9.9.9"}, nil
+	}
+
+	output := captureStderr(t, func() {
+		printUpdateNotice()
+	})
+
+	if fetchCalled {
+		t.Fatal("expected no remote fetch while cache interval is still valid")
+	}
+	if count := strings.Count(output, "Update available:"); count != 1 {
+		t.Fatalf("expected 1 notice, got %d: %q", count, output)
+	}
+	if !strings.Contains(output, "v0.3.10 → v0.3.11") {
+		t.Fatalf("expected cached latest in notice, got %q", output)
 	}
 }
 
-func TestParseSemver(t *testing.T) {
-	tests := []struct {
-		input string
-		want  []int
-	}{
-		{"v1.2.3", []int{1, 2, 3}},
-		{"1.2.3", []int{1, 2, 3}},
-		{"v0.0.0", []int{0, 0, 0}},
-		{"v10.20.30", []int{10, 20, 30}},
-		{"dev", nil},
-		{"v1.2", nil},
-		{"v1.2.3-beta", nil},
+func TestPrintUpdateNotice_RefreshesCacheAndPrintsOnceWhenStillOutdated(t *testing.T) {
+	path := prepareVersionCheckEnv(t, "v0.3.10")
+	saveCache(path, &versionCache{
+		CheckedAt: time.Now().Add(-2 * checkInterval).Unix(),
+		Latest:    "v0.3.11",
+		Outdated:  true,
+	})
+
+	fetchLatestReleaseFn = func() (*ghRelease, error) {
+		return &ghRelease{TagName: "v0.3.12"}, nil
 	}
-	for _, tt := range tests {
-		got := parseSemver(tt.input)
-		if tt.want == nil {
-			if got != nil {
-				t.Errorf("parseSemver(%q) = %v, want nil", tt.input, got)
-			}
-			continue
-		}
-		if got == nil {
-			t.Errorf("parseSemver(%q) = nil, want %v", tt.input, tt.want)
-			continue
-		}
-		for i := range tt.want {
-			if got[i] != tt.want[i] {
-				t.Errorf("parseSemver(%q)[%d] = %d, want %d", tt.input, i, got[i], tt.want[i])
-			}
-		}
+
+	output := captureStderr(t, func() {
+		printUpdateNotice()
+	})
+
+	if count := strings.Count(output, "Update available:"); count != 1 {
+		t.Fatalf("expected 1 notice, got %d: %q", count, output)
+	}
+	if !strings.Contains(output, "v0.3.10 → v0.3.12") {
+		t.Fatalf("expected refreshed latest in notice, got %q", output)
+	}
+
+	loaded, err := loadCache(path)
+	if err != nil {
+		t.Fatalf("loadCache: %v", err)
+	}
+	if loaded.Latest != "v0.3.12" || !loaded.Outdated {
+		t.Fatalf("unexpected cache after refresh: %+v", loaded)
+	}
+}
+
+func TestPrintUpdateNotice_PreservesCachedNoticeOnFetchFailure(t *testing.T) {
+	path := prepareVersionCheckEnv(t, "v0.3.10")
+	before := time.Now().Add(-2 * checkInterval).Unix()
+	saveCache(path, &versionCache{
+		CheckedAt: before,
+		Latest:    "v0.3.11",
+		Outdated:  true,
+	})
+
+	fetchLatestReleaseFn = func() (*ghRelease, error) {
+		return nil, errors.New("network down")
+	}
+
+	output := captureStderr(t, func() {
+		printUpdateNotice()
+	})
+
+	if count := strings.Count(output, "Update available:"); count != 1 {
+		t.Fatalf("expected 1 notice, got %d: %q", count, output)
+	}
+	if !strings.Contains(output, "v0.3.10 → v0.3.11") {
+		t.Fatalf("expected cached latest in notice, got %q", output)
+	}
+
+	loaded, err := loadCache(path)
+	if err != nil {
+		t.Fatalf("loadCache: %v", err)
+	}
+	if loaded.Latest != "v0.3.11" || !loaded.Outdated {
+		t.Fatalf("unexpected cache after failed refresh: %+v", loaded)
+	}
+	if loaded.CheckedAt <= before {
+		t.Fatalf("expected CheckedAt to be refreshed, got %d <= %d", loaded.CheckedAt, before)
+	}
+}
+
+func TestPrintUpdateNotice_SkipsDevVersion(t *testing.T) {
+	path := prepareVersionCheckEnv(t, "dev")
+	fetchCalled := false
+	fetchLatestReleaseFn = func() (*ghRelease, error) {
+		fetchCalled = true
+		return &ghRelease{TagName: "v0.3.11"}, nil
+	}
+
+	output := captureStderr(t, func() {
+		printUpdateNotice()
+	})
+
+	if fetchCalled {
+		t.Fatal("expected dev version to skip remote fetch")
+	}
+	if output != "" {
+		t.Fatalf("expected no notice for dev version, got %q", output)
+	}
+	if _, err := os.Stat(path); !os.IsNotExist(err) {
+		t.Fatalf("expected no cache file for dev version")
 	}
 }
 
