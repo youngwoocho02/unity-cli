@@ -36,11 +36,6 @@ func readStatus(port int) (*client.Instance, error) {
 	return client.FindByPort(port)
 }
 
-// readActiveStatus finds the active (non-stopped) instance on the given port.
-func readActiveStatus(port int) (*client.Instance, error) {
-	return client.FindActiveByPort(port)
-}
-
 // waitForAlive resolves the current target instance, then polls until a newer heartbeat appears.
 // This keeps following the same project even if Unity rebinds to a new port during reload.
 func waitForAlive(resolve instanceResolver, timeoutMs int) (*client.Instance, error) {
