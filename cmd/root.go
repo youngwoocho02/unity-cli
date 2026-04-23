@@ -78,12 +78,28 @@ func Execute() error {
 		return err
 	}
 
-	if err := waitForAlive(inst.Port, flagTimeout); err != nil {
+	targetProject := flagProject
+	if flagPort == 0 && targetProject == "" {
+		targetProject = inst.ProjectPath
+	}
+
+	resolve := func() (*client.Instance, error) {
+		if flagPort > 0 {
+			return client.DiscoverInstance("", flagPort)
+		}
+		return client.DiscoverInstance(targetProject, 0)
+	}
+
+	if _, err := waitForAlive(resolve, flagTimeout); err != nil {
 		return err
 	}
 
 	timeout := flagTimeout
 	send := func(command string, params interface{}) (*client.CommandResponse, error) {
+		inst, err := resolve()
+		if err != nil {
+			return nil, err
+		}
 		return client.Send(inst, command, params, timeout)
 	}
 
@@ -91,12 +107,16 @@ func Execute() error {
 
 	switch category {
 	case "editor":
-		resp, err = editorCmd(subArgs, send, inst.Port)
+		resp, err = editorCmd(subArgs, send, resolve)
 	case "test":
-		testSend := func(command string, params interface{}) (*client.CommandResponse, error) {
-			return client.Send(inst, command, params, 0)
+		currentInst, resolveErr := resolve()
+		if resolveErr != nil {
+			return resolveErr
 		}
-		resp, err = testCmd(subArgs, testSend, inst.Port)
+		testSend := func(command string, params interface{}) (*client.CommandResponse, error) {
+			return client.Send(currentInst, command, params, 0)
+		}
+		resp, err = testCmd(subArgs, testSend, currentInst.Port)
 	case "exec":
 		subArgs = readStdinIfPiped(subArgs)
 		var params map[string]interface{}

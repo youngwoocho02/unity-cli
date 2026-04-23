@@ -7,8 +7,8 @@ import (
 )
 
 // editorCmd controls Unity play mode and asset database.
-// port is needed for waitForReady (refresh --compile blocks until compilation finishes).
-func editorCmd(args []string, send sendFn, port int) (*client.CommandResponse, error) {
+// resolve is needed for waitForReady so compile polling can follow the current project instance.
+func editorCmd(args []string, send sendFn, resolve instanceResolver) (*client.CommandResponse, error) {
 	if len(args) == 0 {
 		return nil, fmt.Errorf("usage: unity-cli editor <play|stop|pause|refresh>")
 	}
@@ -39,7 +39,7 @@ func editorCmd(args []string, send sendFn, port int) (*client.CommandResponse, e
 			if err != nil {
 				return nil, err
 			}
-			hasErrors := waitForReady(port)
+			hasErrors := waitForReady(resolve)
 			if hasErrors {
 				return nil, fmt.Errorf("compilation finished with errors (check unity-cli console)")
 			}
