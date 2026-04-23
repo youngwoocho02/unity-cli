@@ -34,7 +34,9 @@ func checkProcessDead(pid int) bool {
 		// Other errors (e.g. ERROR_INVALID_PARAMETER) — process does not exist
 		return true
 	}
-	defer syscall.CloseHandle(syscall.Handle(handle))
+	defer func() {
+		_ = syscall.CloseHandle(syscall.Handle(handle))
+	}()
 
 	var exitCode uint32
 	ret, _, _ := procGetExitCodeProcess.Call(handle, uintptr(unsafe.Pointer(&exitCode)))
