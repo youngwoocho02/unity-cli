@@ -66,7 +66,11 @@ func TestLoadSaveCache(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "cache.json")
 
-	c := &versionCache{CheckedAt: time.Now().Unix()}
+	c := &versionCache{
+		CheckedAt: time.Now().Unix(),
+		Latest:    "v1.2.3",
+		Outdated:  true,
+	}
 	saveCache(path, c)
 
 	loaded, err := loadCache(path)
@@ -75,6 +79,12 @@ func TestLoadSaveCache(t *testing.T) {
 	}
 	if loaded.CheckedAt != c.CheckedAt {
 		t.Errorf("CheckedAt = %d, want %d", loaded.CheckedAt, c.CheckedAt)
+	}
+	if loaded.Latest != c.Latest {
+		t.Errorf("Latest = %q, want %q", loaded.Latest, c.Latest)
+	}
+	if loaded.Outdated != c.Outdated {
+		t.Errorf("Outdated = %v, want %v", loaded.Outdated, c.Outdated)
 	}
 }
 
@@ -100,7 +110,7 @@ func TestSaveCacheCreatesDir(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "sub", "deep", "cache.json")
 
-	c := &versionCache{CheckedAt: 123}
+	c := &versionCache{CheckedAt: 123, Latest: "v2.0.0", Outdated: true}
 	saveCache(path, c)
 
 	data, err := os.ReadFile(path)
@@ -113,5 +123,11 @@ func TestSaveCacheCreatesDir(t *testing.T) {
 	}
 	if loaded.CheckedAt != 123 {
 		t.Errorf("CheckedAt = %d, want 123", loaded.CheckedAt)
+	}
+	if loaded.Latest != "v2.0.0" {
+		t.Errorf("Latest = %q, want %q", loaded.Latest, "v2.0.0")
+	}
+	if !loaded.Outdated {
+		t.Error("Outdated = false, want true")
 	}
 }

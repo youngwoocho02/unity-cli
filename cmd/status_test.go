@@ -13,6 +13,8 @@ import (
 func writeInstanceFile(t *testing.T, inst client.Instance) string {
 	t.Helper()
 	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
 	dir := filepath.Join(home, ".unity-cli", "instances")
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		t.Fatalf("failed to create instances dir: %v", err)
@@ -39,8 +41,7 @@ func TestReadStatus_ValidFile(t *testing.T) {
 		Timestamp:    1000000,
 	}
 
-	home := writeInstanceFile(t, want)
-	t.Setenv("HOME", home)
+	writeInstanceFile(t, want)
 
 	got, err := readStatus(8090)
 	if err != nil {
@@ -58,7 +59,9 @@ func TestReadStatus_ValidFile(t *testing.T) {
 }
 
 func TestReadStatus_MissingFile(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
 	_, err := readStatus(9999)
 	if err == nil {
 		t.Error("expected error for missing status file")
@@ -67,6 +70,8 @@ func TestReadStatus_MissingFile(t *testing.T) {
 
 func TestReadStatus_InvalidJSON(t *testing.T) {
 	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
 	dir := filepath.Join(home, ".unity-cli", "instances")
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		t.Fatalf("failed to create dir: %v", err)
@@ -74,7 +79,6 @@ func TestReadStatus_InvalidJSON(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "test.json"), []byte("not json"), 0644); err != nil {
 		t.Fatalf("failed to write file: %v", err)
 	}
-	t.Setenv("HOME", home)
 
 	_, err := readStatus(8090)
 	if err == nil {

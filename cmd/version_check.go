@@ -9,10 +9,12 @@ import (
 	"time"
 )
 
-const checkInterval = 12 * time.Hour
+const checkInterval = 1 * time.Hour
 
 type versionCache struct {
-	CheckedAt int64 `json:"checked_at"`
+	CheckedAt int64  `json:"checked_at"`
+	Latest    string `json:"latest,omitempty"`
+	Outdated  bool   `json:"outdated,omitempty"`
 }
 
 func cacheFilePath() string {
@@ -60,6 +62,10 @@ func printUpdateNotice() {
 	now := time.Now().Unix()
 	cache, _ := loadCache(path)
 
+	if cache != nil && cache.Outdated && cache.Latest != "" && cache.Latest != Version {
+		printNotice(Version, cache.Latest)
+	}
+
 	if cache != nil && now-cache.CheckedAt < int64(checkInterval.Seconds()) {
 		return
 	}
@@ -68,13 +74,23 @@ func printUpdateNotice() {
 	release, err := fetchLatestRelease()
 	if err != nil {
 		// Network error — save timestamp so we don't retry immediately
-		saveCache(path, &versionCache{CheckedAt: now})
+		if cache != nil {
+			cache.CheckedAt = now
+			saveCache(path, cache)
+		} else {
+			saveCache(path, &versionCache{CheckedAt: now})
+		}
 		return
 	}
 
-	saveCache(path, &versionCache{CheckedAt: now})
+	nextCache := &versionCache{
+		CheckedAt: now,
+		Latest:    release.TagName,
+		Outdated:  release.TagName != "" && release.TagName != Version,
+	}
+	saveCache(path, nextCache)
 
-	if release.TagName != Version && isNewer(release.TagName, Version) {
+	if nextCache.Outdated {
 		printNotice(Version, release.TagName)
 	}
 }
