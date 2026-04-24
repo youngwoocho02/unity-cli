@@ -170,11 +170,14 @@ unity-cli editor stop
 # Toggle pause (only works during play mode)
 unity-cli editor pause
 
-# Refresh assets
+# Refresh assets (blocked in play mode unless --force is set)
 unity-cli editor refresh
 
-# Refresh and recompile scripts (waits for compilation to finish)
+# Refresh and recompile scripts (also blocked in play mode unless --force is set)
 unity-cli editor refresh --compile
+
+# Force refresh while in play mode
+unity-cli editor refresh --force
 ```
 
 ### Console Logs

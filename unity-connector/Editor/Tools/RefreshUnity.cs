@@ -13,6 +13,9 @@ namespace UnityCliConnector.Tools
             [ToolParameter("Refresh mode: if_dirty (default) or force")]
             public string Mode { get; set; }
 
+            [ToolParameter("Allow refresh while the editor is in or entering play mode.")]
+            public bool Force { get; set; }
+
             [ToolParameter("Scope: all (default) or specific path")]
             public string Scope { get; set; }
 
@@ -26,8 +29,14 @@ namespace UnityCliConnector.Tools
             string mode = p.Get("mode", "if_dirty");
             string scope = p.Get("scope", "all");
             string compile = p.Get("compile", "none");
+            bool force = p.GetBool("force");
 
             bool compileRequested = false;
+
+            if (!force && EditorApplication.isPlayingOrWillChangePlaymode)
+            {
+                return new ErrorResponse("Cannot refresh while Unity is in or entering play mode. Exit play mode first, or pass --force if this is intentional.");
+            }
 
             AssetDatabase.Refresh(string.Equals(mode, "force", StringComparison.OrdinalIgnoreCase)
                 ? ImportAssetOptions.ForceUpdate | ImportAssetOptions.ForceSynchronousImport
@@ -44,6 +53,7 @@ namespace UnityCliConnector.Tools
             {
                 refresh_triggered = true,
                 compile_requested = compileRequested,
+                force = force,
             });
         }
     }

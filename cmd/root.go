@@ -299,7 +299,7 @@ Editor Control:
   editor play [--wait]          Enter play mode (--wait blocks until fully entered)
   editor stop                   Exit play mode
   editor pause                  Toggle pause/resume (play mode only)
-  editor refresh                Refresh asset database
+  editor refresh [--force]      Refresh asset database (blocked in play mode unless forced)
   editor refresh --compile      Recompile scripts and wait until done
 
 Console:
@@ -396,12 +396,15 @@ Subcommands:
   stop                Exit play mode. No effect if not playing.
   pause               Toggle pause. Only works during play mode.
   refresh             Refresh AssetDatabase (reimport changed assets).
+                      Blocked in play mode unless --force is set.
     --compile         Recompile scripts and wait until compilation finishes.
+    --force           Allow refresh during play mode and force asset update.
 
 Examples:
   unity-cli editor play --wait
   unity-cli editor stop
   unity-cli editor refresh --compile
+  unity-cli editor refresh --force
 `)
 	case "console":
 		fmt.Print(`Usage: unity-cli console [options]

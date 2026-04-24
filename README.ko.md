@@ -170,11 +170,14 @@ unity-cli editor stop
 # 일시정지 토글 (플레이 모드에서만 동작)
 unity-cli editor pause
 
-# 에셋 새로고침
+# 에셋 새로고침 (플레이모드에서는 --force 없으면 차단)
 unity-cli editor refresh
 
-# 새로고침 + 스크립트 컴파일 (컴파일 완료까지 대기)
+# 새로고침 + 스크립트 컴파일 (플레이모드에서는 --force 없으면 차단)
 unity-cli editor refresh --compile
+
+# 플레이모드 중 강제 새로고침
+unity-cli editor refresh --force
 ```
 
 ### 콘솔 로그
