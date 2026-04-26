@@ -86,6 +86,29 @@ func TestReadStatus_InvalidJSON(t *testing.T) {
 	}
 }
 
+func TestDiscoverStatusInstance_PortAllowsStoppedInstance(t *testing.T) {
+	want := client.Instance{
+		State:       "stopped",
+		ProjectPath: "/home/user/MyProject",
+		Port:        8090,
+		PID:         os.Getpid(),
+		Timestamp:   1000000,
+	}
+
+	writeInstanceFile(t, want)
+
+	got, err := discoverStatusInstance("", 8090)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got.State != "stopped" {
+		t.Errorf("State: got %q, want stopped", got.State)
+	}
+	if got.Port != 8090 {
+		t.Errorf("Port: got %d, want 8090", got.Port)
+	}
+}
+
 func TestWaitForAlive_FollowsResolverPortChange(t *testing.T) {
 	origPollInterval := statusPollInterval
 	statusPollInterval = 5 * time.Millisecond

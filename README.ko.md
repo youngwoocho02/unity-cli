@@ -336,7 +336,7 @@ unity-cli status
 
 | 플래그 | 설명 | 기본값 |
 |--------|------|--------|
-| `--port <N>` | Unity 인스턴스 포트 직접 지정 (자동 탐지 건너뜀) | auto |
+| `--port <N>` | 활성 heartbeat 포트로 Unity 인스턴스 선택 | auto |
 | `--project <path>` | 프로젝트 경로로 Unity 인스턴스 선택 | latest |
 | `--timeout <ms>` | HTTP 요청 타임아웃 | 120000 |
 
@@ -452,7 +452,7 @@ ls ~/.unity-cli/instances/
 # 프로젝트 경로로 선택
 unity-cli --project MyGame editor play
 
-# 포트로 선택
+# 활성 heartbeat 포트로 선택
 unity-cli --port 8091 editor play
 
 # 기본: 가장 최근 등록된 인스턴스 사용

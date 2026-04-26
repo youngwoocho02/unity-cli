@@ -21,7 +21,7 @@ var (
 )
 
 func Execute() error {
-	flag.IntVar(&flagPort, "port", 0, "Override Unity instance port")
+	flag.IntVar(&flagPort, "port", 0, "Select Unity instance by active heartbeat port")
 	flag.StringVar(&flagProject, "project", "", "Select Unity instance by project path")
 	flag.IntVar(&flagTimeout, "timeout", 120000, "Request timeout in milliseconds")
 
@@ -64,7 +64,7 @@ func Execute() error {
 	case "update":
 		return updateCmd(subArgs)
 	case "status":
-		inst, err := client.DiscoverInstance(flagProject, flagPort)
+		inst, err := discoverStatusInstance(flagProject, flagPort)
 		if err != nil {
 			return err
 		}
@@ -370,7 +370,7 @@ Update:
   update --check                Check for updates without installing
 
 Global Options:
-  --port <N>          Connect to specific Unity port (skip auto-discovery)
+  --port <N>          Select Unity instance by active heartbeat port
   --project <path>    Select Unity instance by project path
   --timeout <ms>      Request timeout in ms (default: 120000)
 

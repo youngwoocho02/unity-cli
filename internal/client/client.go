@@ -102,7 +102,11 @@ func FindByPort(port int) (*Instance, error) {
 	return best, nil
 }
 
-// FindActiveByPort is like FindByPort but skips stopped instances.
+func isActiveInstance(inst Instance) bool {
+	return inst.State != "stopped" && inst.Timestamp > 0
+}
+
+// FindActiveByPort is like FindByPort but skips stopped or incomplete instances.
 // Used by polling paths (waitForAlive, waitForReady) that only care about live instances.
 func FindActiveByPort(port int) (*Instance, error) {
 	instances, err := ScanInstances()
@@ -111,7 +115,7 @@ func FindActiveByPort(port int) (*Instance, error) {
 	}
 	var best *Instance
 	for i, inst := range instances {
-		if inst.Port != port || inst.State == "stopped" {
+		if inst.Port != port || !isActiveInstance(inst) {
 			continue
 		}
 		if best == nil || inst.Timestamp > best.Timestamp {
@@ -125,17 +129,12 @@ func FindActiveByPort(port int) (*Instance, error) {
 }
 
 // DiscoverInstance finds a running Unity instance from ~/.unity-cli/instances/.
-// If port > 0, returns the matching active instance file when present (so
-// callers like waitForAlive see a real Timestamp); otherwise falls back to a
-// stub so the user can still target a port that has no heartbeat yet.
+// If port > 0, matches an active instance by port.
 // If project is set, matches by project path substring.
 // Otherwise returns the most recently active instance.
 func DiscoverInstance(project string, port int) (*Instance, error) {
 	if port > 0 {
-		if inst, err := FindActiveByPort(port); err == nil {
-			return inst, nil
-		}
-		return &Instance{ProjectPath: "override", Port: port}, nil
+		return FindActiveByPort(port)
 	}
 
 	instances, err := ScanInstances()
@@ -146,7 +145,7 @@ func DiscoverInstance(project string, port int) (*Instance, error) {
 	// Filter out stopped instances
 	var alive []Instance
 	for _, inst := range instances {
-		if inst.State == "stopped" {
+		if !isActiveInstance(inst) {
 			continue
 		}
 		alive = append(alive, inst)

@@ -336,12 +336,12 @@ The CLI also checks Unity's state automatically before sending any command. If U
 
 | Flag | Description | Default |
 |------|-------------|---------|
-| `--port <N>` | Override Unity instance port (skip auto-discovery) | auto |
+| `--port <N>` | Select Unity instance by active heartbeat port | auto |
 | `--project <path>` | Select Unity instance by project path | latest |
 | `--timeout <ms>` | HTTP request timeout | 120000 |
 
 ```bash
-# Connect to a specific Unity instance
+# Select an active Unity instance by heartbeat port
 unity-cli --port 8091 editor play
 
 # Select by project path when multiple Unity instances are open
@@ -452,7 +452,7 @@ ls ~/.unity-cli/instances/
 # Select by project path
 unity-cli --project MyGame editor play
 
-# Select by port
+# Select by active heartbeat port
 unity-cli --port 8091 editor play
 
 # Default: uses the most recently registered instance

@@ -31,6 +31,13 @@ func statusCmd(inst *client.Instance) error {
 	return nil
 }
 
+func discoverStatusInstance(project string, port int) (*client.Instance, error) {
+	if port > 0 {
+		return client.FindByPort(port)
+	}
+	return client.DiscoverInstance(project, 0)
+}
+
 // readStatus finds the instance file matching the given port (any state).
 func readStatus(port int) (*client.Instance, error) {
 	return client.FindByPort(port)
