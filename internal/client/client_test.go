@@ -307,3 +307,57 @@ func TestDiscoverInstance_ProjectPathMatchesSlashVariants(t *testing.T) {
 		t.Errorf("ProjectPath: got %q, want %q", got.ProjectPath, "E:/GamerAworlD")
 	}
 }
+
+// TestDiscoverInstance_PortFlagPopulatesTimestamp verifies that --port lookups
+// return the actual instance file's timestamp when one exists. Without this,
+// waitForAlive sees Timestamp=0 and polls indefinitely for a "newer" heartbeat
+// that never arrives, hanging on "Waiting for Unity..." until --timeout expires.
+func TestDiscoverInstance_PortFlagPopulatesTimestamp(t *testing.T) {
+	stubIsProcessDead(t, map[int]bool{})
+
+	home := writeInstanceFiles(t, map[string]Instance{
+		"current.json": {
+			State:       "ready",
+			ProjectPath: "/projects/current",
+			Port:        8091,
+			PID:         200,
+			Timestamp:   12345,
+		},
+	})
+	t.Setenv("HOME", home)
+
+	got, err := DiscoverInstance("", 8091)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got.Port != 8091 {
+		t.Errorf("Port: got %d, want %d", got.Port, 8091)
+	}
+	if got.Timestamp != 12345 {
+		t.Errorf("Timestamp: got %d, want %d (override stub leaks instead of file timestamp)", got.Timestamp, 12345)
+	}
+	if got.ProjectPath != "/projects/current" {
+		t.Errorf("ProjectPath: got %q, want %q", got.ProjectPath, "/projects/current")
+	}
+}
+
+// TestDiscoverInstance_PortFlagFallsBackToStub verifies that --port still
+// works when no matching instance file exists (e.g., connecting to a Unity
+// instance before its heartbeat has been written).
+func TestDiscoverInstance_PortFlagFallsBackToStub(t *testing.T) {
+	stubIsProcessDead(t, map[int]bool{})
+
+	home := writeInstanceFiles(t, map[string]Instance{})
+	t.Setenv("HOME", home)
+
+	got, err := DiscoverInstance("", 8091)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got.Port != 8091 {
+		t.Errorf("Port: got %d, want %d", got.Port, 8091)
+	}
+	if got.ProjectPath != "override" {
+		t.Errorf("ProjectPath: got %q, want %q", got.ProjectPath, "override")
+	}
+}

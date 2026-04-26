@@ -125,11 +125,16 @@ func FindActiveByPort(port int) (*Instance, error) {
 }
 
 // DiscoverInstance finds a running Unity instance from ~/.unity-cli/instances/.
-// If port > 0, skips discovery and connects directly.
+// If port > 0, returns the matching active instance file when present (so
+// callers like waitForAlive see a real Timestamp); otherwise falls back to a
+// stub so the user can still target a port that has no heartbeat yet.
 // If project is set, matches by project path substring.
 // Otherwise returns the most recently active instance.
 func DiscoverInstance(project string, port int) (*Instance, error) {
 	if port > 0 {
+		if inst, err := FindActiveByPort(port); err == nil {
+			return inst, nil
+		}
 		return &Instance{ProjectPath: "override", Port: port}, nil
 	}
 
