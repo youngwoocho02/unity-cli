@@ -25,7 +25,7 @@ func TestSendExec(t *testing.T) {
 		t.Fatalf("failed to discover Unity instance: %v", err)
 	}
 
-	resp, err := client.Send(inst, "execute_csharp", map[string]interface{}{
+	resp, err := client.Send(inst, "exec", map[string]interface{}{
 		"code": "return (1 + 1).ToString();",
 	}, 5000)
 	if err != nil {
@@ -43,8 +43,8 @@ func TestSendConsole(t *testing.T) {
 		t.Fatalf("failed to discover Unity instance: %v", err)
 	}
 
-	resp, err := client.Send(inst, "read_console", map[string]interface{}{
-		"count": 5,
+	resp, err := client.Send(inst, "console", map[string]interface{}{
+		"lines": 5,
 	}, 5000)
 	if err != nil {
 		t.Fatalf("send failed: %v", err)
