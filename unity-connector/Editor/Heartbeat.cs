@@ -119,7 +119,7 @@ namespace UnityCliConnector
         {
             if (s_ConnectorVersion != null) return s_ConnectorVersion;
 
-            var package = PackageInfo.FindForAssembly(typeof(Heartbeat).Assembly);
+            var package = UnityEditor.PackageManager.PackageInfo.FindForAssembly(typeof(Heartbeat).Assembly);
             s_ConnectorVersion = package?.version;
             return s_ConnectorVersion;
         }
