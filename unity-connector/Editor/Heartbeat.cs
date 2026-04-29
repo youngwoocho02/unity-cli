@@ -4,6 +4,7 @@ using System.Security.Cryptography;
 using System.Text;
 using Newtonsoft.Json;
 using UnityEditor;
+using UnityEditor.PackageManager;
 using UnityEngine;
 
 namespace UnityCliConnector
@@ -19,6 +20,7 @@ namespace UnityCliConnector
         static string s_ForcedState;
         static double s_CompileRequestTime;
         static string s_FilePath;
+        static string s_ConnectorVersion;
 
         static Heartbeat()
         {
@@ -98,6 +100,7 @@ namespace UnityCliConnector
                 port = HttpServer.Port,
                 pid = System.Diagnostics.Process.GetCurrentProcess().Id,
                 unityVersion = Application.unityVersion,
+                connectorVersion = GetConnectorVersion(),
                 timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
                 compileErrors = EditorUtility.scriptCompilationFailed,
             };
@@ -110,6 +113,15 @@ namespace UnityCliConnector
             catch
             {
             }
+        }
+
+        static string GetConnectorVersion()
+        {
+            if (s_ConnectorVersion != null) return s_ConnectorVersion;
+
+            var package = PackageInfo.FindForAssembly(typeof(Heartbeat).Assembly);
+            s_ConnectorVersion = package?.version;
+            return s_ConnectorVersion;
         }
 
         static string GetState()

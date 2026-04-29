@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -33,12 +34,13 @@ func writeInstanceFile(t *testing.T, inst client.Instance) string {
 
 func TestReadStatus_ValidFile(t *testing.T) {
 	want := client.Instance{
-		State:        "ready",
-		ProjectPath:  "/home/user/MyProject",
-		Port:         8090,
-		PID:          os.Getpid(),
-		UnityVersion: "6000.3.10f1",
-		Timestamp:    1000000,
+		State:            "ready",
+		ProjectPath:      "/home/user/MyProject",
+		Port:             8090,
+		PID:              os.Getpid(),
+		UnityVersion:     "6000.3.10f1",
+		ConnectorVersion: "0.3.10",
+		Timestamp:        1000000,
 	}
 
 	writeInstanceFile(t, want)
@@ -55,6 +57,9 @@ func TestReadStatus_ValidFile(t *testing.T) {
 	}
 	if got.ProjectPath != want.ProjectPath {
 		t.Errorf("ProjectPath: got %q, want %q", got.ProjectPath, want.ProjectPath)
+	}
+	if got.ConnectorVersion != want.ConnectorVersion {
+		t.Errorf("ConnectorVersion: got %q, want %q", got.ConnectorVersion, want.ConnectorVersion)
 	}
 }
 
@@ -106,6 +111,127 @@ func TestDiscoverStatusInstance_PortAllowsStoppedInstance(t *testing.T) {
 	}
 	if got.Port != 8090 {
 		t.Errorf("Port: got %d, want 8090", got.Port)
+	}
+}
+
+func TestStatusCmd_ReturnsConnectorVersionMismatch(t *testing.T) {
+	origVersion := Version
+	Version = "v0.3.14"
+	t.Cleanup(func() { Version = origVersion })
+
+	writeInstanceFile(t, client.Instance{
+		State:            "ready",
+		ProjectPath:      "/home/user/MyProject",
+		Port:             8090,
+		PID:              os.Getpid(),
+		UnityVersion:     "6000.3.10f1",
+		ConnectorVersion: "0.3.13",
+		Timestamp:        time.Now().UnixMilli(),
+	})
+
+	err := statusCmd(&client.Instance{Port: 8090})
+	if err == nil {
+		t.Fatal("expected connector mismatch error")
+	}
+	if !strings.Contains(err.Error(), "connector version mismatch") {
+		t.Fatalf("expected mismatch error, got %v", err)
+	}
+}
+
+func TestStatusCmd_ReturnsMissingConnectorVersion(t *testing.T) {
+	origVersion := Version
+	Version = "v0.3.14"
+	t.Cleanup(func() { Version = origVersion })
+
+	writeInstanceFile(t, client.Instance{
+		State:        "ready",
+		ProjectPath:  "/home/user/MyProject",
+		Port:         8090,
+		PID:          os.Getpid(),
+		UnityVersion: "6000.3.10f1",
+		Timestamp:    time.Now().UnixMilli(),
+	})
+
+	err := statusCmd(&client.Instance{Port: 8090})
+	if err == nil {
+		t.Fatal("expected missing connector version error")
+	}
+	if !strings.Contains(err.Error(), "connector version is unknown") {
+		t.Fatalf("expected missing version error, got %v", err)
+	}
+}
+
+func TestStatusCmd_AllowsMatchingConnectorVersion(t *testing.T) {
+	origVersion := Version
+	Version = "v0.3.14"
+	t.Cleanup(func() { Version = origVersion })
+
+	writeInstanceFile(t, client.Instance{
+		State:            "ready",
+		ProjectPath:      "/home/user/MyProject",
+		Port:             8090,
+		PID:              os.Getpid(),
+		UnityVersion:     "6000.3.10f1",
+		ConnectorVersion: "0.3.14",
+		Timestamp:        time.Now().UnixMilli(),
+	})
+
+	if err := statusCmd(&client.Instance{Port: 8090}); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestStatusCmd_ReturnsConnectorVersionMismatchWhenStale(t *testing.T) {
+	origVersion := Version
+	Version = "v0.3.14"
+	t.Cleanup(func() { Version = origVersion })
+
+	writeInstanceFile(t, client.Instance{
+		State:            "ready",
+		ProjectPath:      "/home/user/MyProject",
+		Port:             8090,
+		PID:              os.Getpid(),
+		UnityVersion:     "6000.3.10f1",
+		ConnectorVersion: "0.3.13",
+		Timestamp:        time.Now().Add(-10 * time.Second).UnixMilli(),
+	})
+
+	err := statusCmd(&client.Instance{Port: 8090})
+	if err == nil {
+		t.Fatal("expected stale connector mismatch error")
+	}
+	if !strings.Contains(err.Error(), "connector version mismatch") {
+		t.Fatalf("expected mismatch error, got %v", err)
+	}
+}
+
+func TestCheckConnectorVersion_AllowsMatchingLeadingV(t *testing.T) {
+	inst := &client.Instance{ConnectorVersion: "0.3.10"}
+	if err := checkConnectorVersion(inst, "v0.3.10"); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestCheckConnectorVersion_RejectsMismatch(t *testing.T) {
+	inst := &client.Instance{ConnectorVersion: "0.3.9"}
+	err := checkConnectorVersion(inst, "v0.3.10")
+	if err == nil {
+		t.Fatal("expected mismatch error")
+	}
+}
+
+func TestCheckConnectorVersion_RejectsMissingConnectorVersion(t *testing.T) {
+	inst := &client.Instance{}
+	err := checkConnectorVersion(inst, "v0.3.10")
+	if err == nil {
+		t.Fatal("expected missing connector version error")
+	}
+}
+
+func TestCheckConnectorVersion_SkipsDevCliVersion(t *testing.T) {
+	inst := &client.Instance{ConnectorVersion: "0.3.10"}
+	if err := checkConnectorVersion(inst, "dev"); err != nil {
+		t.Fatalf("unexpected error: %v", err)
 	}
 }
 

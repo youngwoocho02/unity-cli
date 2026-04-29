@@ -3,6 +3,7 @@ package cmd
 import (
 	"fmt"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/youngwoocho02/unity-cli/internal/client"
@@ -21,14 +22,15 @@ func statusCmd(inst *client.Instance) error {
 	age := time.Since(time.UnixMilli(status.Timestamp))
 	if age > 3*time.Second {
 		fmt.Fprintf(os.Stderr, "Unity (port %d): not responding (last heartbeat %s ago)\n", status.Port, age.Truncate(time.Second))
-		return nil
+		return checkConnectorVersion(status, Version)
 	}
 
 	fmt.Printf("Unity (port %d): %s\n", status.Port, status.State)
 	fmt.Printf("  Project: %s\n", status.ProjectPath)
 	fmt.Printf("  Version: %s\n", status.UnityVersion)
+	fmt.Printf("  Connector: %s\n", connectorVersionLabel(status.ConnectorVersion))
 	fmt.Printf("  PID:     %d\n", status.PID)
-	return nil
+	return checkConnectorVersion(status, Version)
 }
 
 func discoverStatusInstance(project string, port int) (*client.Instance, error) {
@@ -41,6 +43,38 @@ func discoverStatusInstance(project string, port int) (*client.Instance, error) 
 // readStatus finds the instance file matching the given port (any state).
 func readStatus(port int) (*client.Instance, error) {
 	return client.FindByPort(port)
+}
+
+func connectorVersionLabel(version string) string {
+	if strings.TrimSpace(version) == "" {
+		return "unknown"
+	}
+	return version
+}
+
+func checkConnectorVersion(inst *client.Instance, cliVersion string) error {
+	if normalizeVersion(cliVersion) == "dev" {
+		return nil
+	}
+	if inst == nil {
+		return nil
+	}
+
+	connectorVersion := strings.TrimSpace(inst.ConnectorVersion)
+	if connectorVersion == "" {
+		return fmt.Errorf("connector version is unknown; update the Unity Connector package to match unity-cli %s", cliVersion)
+	}
+	if normalizeVersion(connectorVersion) != normalizeVersion(cliVersion) {
+		return fmt.Errorf("connector version mismatch: unity-cli %s, connector %s. Update both to the same release", cliVersion, connectorVersion)
+	}
+	return nil
+}
+
+func normalizeVersion(version string) string {
+	version = strings.TrimSpace(version)
+	version = strings.TrimPrefix(version, "v")
+	version = strings.TrimPrefix(version, "V")
+	return version
 }
 
 // waitForAlive resolves the current target instance, then polls until a newer heartbeat appears.

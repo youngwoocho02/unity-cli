@@ -90,7 +90,11 @@ func Execute() error {
 		return client.DiscoverInstance(targetProject, 0)
 	}
 
-	if _, err := waitForAlive(resolve, flagTimeout); err != nil {
+	alive, err := waitForAlive(resolve, flagTimeout)
+	if err != nil {
+		return err
+	}
+	if err := checkConnectorVersion(alive, Version); err != nil {
 		return err
 	}
 
@@ -98,6 +102,9 @@ func Execute() error {
 	send := func(command string, params interface{}) (*client.CommandResponse, error) {
 		inst, err := resolve()
 		if err != nil {
+			return nil, err
+		}
+		if err := checkConnectorVersion(inst, Version); err != nil {
 			return nil, err
 		}
 		return client.Send(inst, command, params, timeout)
@@ -112,6 +119,9 @@ func Execute() error {
 		currentInst, resolveErr := resolve()
 		if resolveErr != nil {
 			return resolveErr
+		}
+		if err := checkConnectorVersion(currentInst, Version); err != nil {
+			return err
 		}
 		testSend := func(command string, params interface{}) (*client.CommandResponse, error) {
 			return client.Send(currentInst, command, params, 0)
