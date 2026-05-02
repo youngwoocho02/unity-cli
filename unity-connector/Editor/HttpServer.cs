@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Concurrent;
 using System.IO;
+using System.Linq;
 using System.Net;
 using System.Text;
 using System.Threading;
@@ -33,8 +34,10 @@ namespace UnityCliConnector
         static double s_NextStartAttemptTime;
         static string s_LastFailureMessage;
         static double s_LastFailureLogTime;
+        static bool s_ManuallyStopped;
 
         static readonly ConcurrentQueue<WorkItem> s_Queue = new();
+        static readonly ConcurrentDictionary<TaskCompletionSource<object>, byte> s_Pending = new();
 
         struct WorkItem
         {
@@ -48,12 +51,54 @@ namespace UnityCliConnector
             Start();
             EditorApplication.quitting += Stop;
             AssemblyReloadEvents.beforeAssemblyReload += StopListener;
-            AssemblyReloadEvents.afterAssemblyReload += Start;
+            AssemblyReloadEvents.afterAssemblyReload += OnAfterAssemblyReload;
             EditorApplication.update += ProcessQueue;
         }
 
         public static int Port => s_Port;
         public static bool IsRunning => s_Listener != null && s_Listener.IsListening;
+        public static int PendingCount => s_Pending.Count;
+
+        public static void ManualStart()
+        {
+            s_ManuallyStopped = false;
+            Start();
+        }
+
+        public static void ManualStop()
+        {
+            s_ManuallyStopped = true;
+            Stop();
+        }
+
+        /// <summary>
+        /// Drains the queue, faults every in-flight TaskCompletionSource so waiting
+        /// clients return immediately, and resets the dispatch lock so new commands
+        /// can run even if a previous handler is still hung.
+        /// </summary>
+        public static int PurgePending()
+        {
+            while (s_Queue.TryDequeue(out _)) { }
+
+            var snapshot = s_Pending.Keys.ToArray();
+            var purged = 0;
+            foreach (var tcs in snapshot)
+            {
+                if (tcs.TrySetResult(new ErrorResponse("Purged by user")))
+                    purged++;
+            }
+            s_Pending.Clear();
+
+            CommandRouter.ResetLock();
+            return purged;
+        }
+
+        static void OnAfterAssemblyReload()
+        {
+            // Domain reload clears any prior manual-stop intent; user must re-stop after reload.
+            s_ManuallyStopped = false;
+            Start();
+        }
 
         static void Start()
         {
@@ -168,8 +213,10 @@ namespace UnityCliConnector
 
         static void ProcessQueue()
         {
-            // Watchdog: recover if the listener died unexpectedly between assembly reloads.
-            if (!IsRunning && EditorApplication.timeSinceStartup >= s_NextStartAttemptTime)
+            // Watchdog: recover if the listener died unexpectedly. Skip when the user
+            // explicitly stopped via ManualStop — otherwise the watchdog would instantly
+            // revive the listener and the Stop button would be useless.
+            if (!IsRunning && !s_ManuallyStopped && EditorApplication.timeSinceStartup >= s_NextStartAttemptTime)
                 Start();
 
             while (s_Queue.TryDequeue(out var item))
@@ -181,11 +228,15 @@ namespace UnityCliConnector
             try
             {
                 var r = await CommandRouter.Dispatch(item.Command, item.Parameters);
-                item.Tcs.SetResult(r);
+                item.Tcs.TrySetResult(r);
             }
             catch (Exception ex)
             {
-                item.Tcs.SetResult(new ErrorResponse(ex.Message));
+                item.Tcs.TrySetResult(new ErrorResponse(ex.Message));
+            }
+            finally
+            {
+                s_Pending.TryRemove(item.Tcs, out _);
             }
         }
 
@@ -282,6 +333,7 @@ namespace UnityCliConnector
                     else
                     {
                         var tcs = new TaskCompletionSource<object>();
+                        s_Pending.TryAdd(tcs, 0);
                         s_Queue.Enqueue(new WorkItem
                         {
                             Command = command,

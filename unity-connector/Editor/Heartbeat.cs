@@ -58,6 +58,9 @@ namespace UnityCliConnector
             WriteState("compiling");
         }
 
+        public static string CurrentState =>
+            s_ForcedState ?? (HttpServer.IsRunning ? GetState() : "stopped");
+
         static void Tick()
         {
             // Stop writing once the listener is down so MarkStopped's "stopped" state
