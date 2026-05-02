@@ -60,7 +60,9 @@ namespace UnityCliConnector
 
         static void Tick()
         {
-            if (HttpServer.Port == 0) return;
+            // Stop writing once the listener is down so MarkStopped's "stopped" state
+            // isn't immediately overwritten by a fresh live snapshot.
+            if (!HttpServer.IsRunning) return;
 
             var now = EditorApplication.timeSinceStartup;
             if (now - s_LastWrite < INTERVAL) return;
