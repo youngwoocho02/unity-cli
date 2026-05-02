@@ -24,10 +24,15 @@ namespace UnityCliConnector
     {
         const int DEFAULT_PORT = 8090;
         const int MAX_PORT_ATTEMPTS = 10;
+        const double AUTO_RESTART_INTERVAL = 1.0;
+        const double FAILURE_LOG_INTERVAL = 5.0;
 
         static HttpListener s_Listener;
         static CancellationTokenSource s_Cts;
         static int s_Port;
+        static double s_NextStartAttemptTime;
+        static string s_LastFailureMessage;
+        static double s_LastFailureLogTime;
 
         static readonly ConcurrentQueue<WorkItem> s_Queue = new();
 
@@ -48,40 +53,83 @@ namespace UnityCliConnector
         }
 
         public static int Port => s_Port;
+        public static bool IsRunning => s_Listener != null && s_Listener.IsListening;
 
         static void Start()
         {
-            if (s_Listener != null) return;
+            if (IsRunning) return;
+            // Stale listener left behind by a crashed ListenLoop — tear it down before rebinding.
+            if (s_Listener != null) StopListener();
 
             for (var attempt = 0; attempt < MAX_PORT_ATTEMPTS; attempt++)
             {
                 var port = DEFAULT_PORT + attempt;
-                try
-                {
-                    var listener = new HttpListener();
-                    listener.Prefixes.Add($"http://127.0.0.1:{port}/");
-                    listener.Start();
-
-                    s_Listener = listener;
-                    s_Port = port;
-                    s_Cts = new CancellationTokenSource();
-
-                    _ = ListenLoop(s_Cts.Token);
-
-                    Debug.Log($"[UnityCliConnector] HTTP server started on port {port}");
+                if (TryStartOnPort(port))
                     return;
-                }
-                catch (HttpListenerException)
-                {
-                    // Port in use, try next
-                }
-                catch (System.Net.Sockets.SocketException)
-                {
-                    // Windows/Mono throws SocketException instead of HttpListenerException
-                }
             }
 
-            Debug.LogError("[UnityCliConnector] Failed to start HTTP server — no available port");
+            Heartbeat.MarkStopped();
+            ScheduleRetry();
+            LogStartFailure("[UnityCliConnector] Failed to start HTTP server — no available port", true);
+        }
+
+        static bool TryStartOnPort(int port)
+        {
+            try
+            {
+                var listener = new HttpListener();
+                listener.Prefixes.Add($"http://127.0.0.1:{port}/");
+                listener.Start();
+
+                s_Listener = listener;
+                s_Port = port;
+                s_Cts = new CancellationTokenSource();
+                s_NextStartAttemptTime = 0;
+                ClearStartFailure();
+
+                _ = ListenLoop(s_Cts.Token);
+
+                Debug.Log($"[UnityCliConnector] HTTP server started on port {port}");
+                return true;
+            }
+            catch (HttpListenerException)
+            {
+                return false;
+            }
+            catch (System.Net.Sockets.SocketException)
+            {
+                // Windows/Mono throws SocketException instead of HttpListenerException
+                return false;
+            }
+            catch (Exception ex)
+            {
+                ScheduleRetry();
+                LogStartFailure($"[UnityCliConnector] Failed to start HTTP server on port {port}: {ex.Message}", true);
+                return false;
+            }
+        }
+
+        static void ScheduleRetry()
+        {
+            s_NextStartAttemptTime = EditorApplication.timeSinceStartup + AUTO_RESTART_INTERVAL;
+        }
+
+        static void LogStartFailure(string message, bool error = false)
+        {
+            var now = EditorApplication.timeSinceStartup;
+            if (s_LastFailureMessage == message && now - s_LastFailureLogTime < FAILURE_LOG_INTERVAL)
+                return;
+
+            s_LastFailureMessage = message;
+            s_LastFailureLogTime = now;
+            if (error) Debug.LogError(message);
+            else Debug.LogWarning(message);
+        }
+
+        static void ClearStartFailure()
+        {
+            s_LastFailureMessage = null;
+            s_LastFailureLogTime = 0;
         }
 
         static void StopListener()
@@ -108,6 +156,7 @@ namespace UnityCliConnector
         {
             var port = s_Port;
             StopListener();
+            Heartbeat.MarkStopped();
             Debug.Log($"[UnityCliConnector] HTTP server stopped (was port {port})");
         }
 
@@ -119,6 +168,10 @@ namespace UnityCliConnector
 
         static void ProcessQueue()
         {
+            // Watchdog: recover if the listener died unexpectedly between assembly reloads.
+            if (!IsRunning && EditorApplication.timeSinceStartup >= s_NextStartAttemptTime)
+                Start();
+
             while (s_Queue.TryDequeue(out var item))
                 ProcessItem(item);
         }
@@ -138,20 +191,41 @@ namespace UnityCliConnector
 
         static async Task ListenLoop(CancellationToken ct)
         {
-            while (ct.IsCancellationRequested == false && s_Listener?.IsListening == true)
+            try
             {
-                try
+                while (!ct.IsCancellationRequested)
                 {
-                    var context = await s_Listener.GetContextAsync();
-                    _ = HandleRequest(context);
+                    var listener = s_Listener;
+                    if (listener == null || !listener.IsListening) break;
+
+                    try
+                    {
+                        var context = await listener.GetContextAsync();
+                        _ = HandleRequest(context);
+                    }
+                    catch (ObjectDisposedException)
+                    {
+                        break;
+                    }
+                    catch (HttpListenerException)
+                    {
+                        break;
+                    }
                 }
-                catch (ObjectDisposedException)
+            }
+            catch (Exception ex)
+            {
+                Debug.LogError($"[UnityCliConnector] ListenLoop crashed: {ex.Message}");
+            }
+            finally
+            {
+                // If we exited without an explicit cancel, clean up so the watchdog can restart.
+                if (!ct.IsCancellationRequested && s_Listener != null)
                 {
-                    break;
-                }
-                catch (HttpListenerException)
-                {
-                    break;
+                    Debug.LogWarning("[UnityCliConnector] ListenLoop exited unexpectedly — cleaning up for auto-recovery");
+                    try { s_Listener.Stop(); s_Listener.Close(); } catch { }
+                    s_Listener = null;
+                    Heartbeat.MarkStopped();
                 }
             }
         }

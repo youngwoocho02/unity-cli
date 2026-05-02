@@ -133,7 +133,9 @@ namespace UnityCliConnector
             return "ready";
         }
 
-        public static void Cleanup()
+        public static void Cleanup() => MarkStopped();
+
+        public static void MarkStopped()
         {
             if (HttpServer.Port == 0) return;
             s_ForcedState = "stopped";

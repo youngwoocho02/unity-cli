@@ -13,19 +13,32 @@ namespace UnityCliConnector
     /// </summary>
     public static class CommandRouter
     {
-        static readonly SemaphoreSlim s_Lock = new(1, 1);
+        static SemaphoreSlim s_Lock = new(1, 1);
 
         public static async Task<object> Dispatch(string command, JObject parameters)
         {
-            await s_Lock.WaitAsync();
+            // Capture locally so a concurrent ResetLock() swap doesn't make us release a
+            // semaphore we never acquired. A still-running orphaned call releases the old
+            // semaphore (now unreferenced) instead of double-releasing the new one.
+            var sem = s_Lock;
+            await sem.WaitAsync();
             try
             {
                 return await DispatchInternal(command, parameters);
             }
             finally
             {
-                s_Lock.Release();
+                sem.Release();
             }
+        }
+
+        /// <summary>
+        /// Replaces the dispatch semaphore with a fresh one so new commands can run
+        /// even if a previous handler is still hung holding the old semaphore.
+        /// </summary>
+        public static void ResetLock()
+        {
+            s_Lock = new SemaphoreSlim(1, 1);
         }
 
         static async Task<object> DispatchInternal(string command, JObject parameters)
