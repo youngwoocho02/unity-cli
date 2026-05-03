@@ -289,15 +289,16 @@ func readStdinIfPiped(args []string) []string {
 // Global flags must be parsed by flag.CommandLine before the subcommand runs.
 func splitArgs(args []string) (flags, commands []string) {
 	for i := 0; i < len(args); i++ {
-		if args[i] == "--ignore-version-mismatch" {
+		switch args[i] {
+		case "--ignore-version-mismatch":
 			flags = append(flags, args[i])
-		} else if args[i] == "--port" || args[i] == "--project" || args[i] == "--timeout" {
+		case "--port", "--project", "--timeout":
 			flags = append(flags, args[i])
 			if i+1 < len(args) {
 				i++
 				flags = append(flags, args[i])
 			}
-		} else {
+		default:
 			commands = append(commands, args[i])
 		}
 	}

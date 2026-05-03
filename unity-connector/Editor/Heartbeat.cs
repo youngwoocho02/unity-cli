@@ -16,7 +16,7 @@ namespace UnityCliConnector
 
         static double s_LastWrite;
         const double INTERVAL = 0.5;
-        const string CONNECTOR_VERSION = "0.3.15";
+        const string CONNECTOR_VERSION = "0.3.16";
         static string s_ForcedState;
         static double s_CompileRequestTime;
         static string s_FilePath;
