@@ -296,11 +296,14 @@ unity-cli test
 # Run PlayMode tests
 unity-cli test --mode PlayMode
 
+# Save dirty open scenes before running tests
+unity-cli test --auto-save-scenes
+
 # Filter by test name (substring match)
 unity-cli test --filter MyTestClass
 ```
 
-Requires the Unity Test Framework package. PlayMode tests trigger a domain reload — the CLI polls for results automatically.
+Requires the Unity Test Framework package. Tests are blocked by default when any open scene has unsaved changes. Use `--auto-save-scenes` to save them first, or `--allow-dirty-scenes` to run anyway. PlayMode tests trigger a domain reload — the CLI polls for results automatically.
 
 ### List Tools
 

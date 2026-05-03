@@ -353,6 +353,8 @@ Tests:
   test                            Run EditMode tests (default)
   test --mode PlayMode            Run PlayMode tests
   test --filter <name>            Filter by namespace, class, or full test name
+  test --allow-dirty-scenes       Run even when open scenes have unsaved changes
+  test --auto-save-scenes         Save dirty open scenes before running tests
 
 Profiler:
   profiler hierarchy              Top-level profiler samples (last frame)
@@ -546,15 +548,19 @@ Options:
   --mode <EditMode|PlayMode>    Test mode (default: EditMode)
   --filter <name>               Filter by namespace, class, or full test name
                                 Must be the full path (e.g. MyNamespace.MyClass)
+  --allow-dirty-scenes          Run even when open scenes have unsaved changes
+  --auto-save-scenes            Save dirty open scenes before running tests
 
 EditMode tests hold the connection open and return results directly.
 PlayMode tests return immediately and poll a results file (domain reload safe).
+By default, tests are blocked when any open scene has unsaved changes.
 
 Requires the Unity Test Framework package (com.unity.test-framework).
 
 Examples:
   unity-cli test
   unity-cli test --mode PlayMode
+  unity-cli test --auto-save-scenes
   unity-cli test --filter MyNamespace.MyTests
   unity-cli test --mode EditMode --filter MyNamespace.MyTests.SpecificTest
 `)

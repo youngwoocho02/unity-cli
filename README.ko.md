@@ -296,11 +296,14 @@ unity-cli test
 # PlayMode 테스트 실행
 unity-cli test --mode PlayMode
 
+# 열린 dirty 씬 저장 후 테스트 실행
+unity-cli test --auto-save-scenes
+
 # 테스트 이름으로 필터링 (부분 문자열 매치)
 unity-cli test --filter MyTestClass
 ```
 
-Unity Test Framework 패키지가 필요합니다. PlayMode 테스트는 도메인 리로드를 트리거하며, CLI가 자동으로 결과를 폴링합니다.
+Unity Test Framework 패키지가 필요합니다. 열린 씬에 저장되지 않은 변경이 있으면 기본적으로 테스트를 막습니다. `--auto-save-scenes`로 먼저 저장하거나, `--allow-dirty-scenes`로 그대로 실행할 수 있습니다. PlayMode 테스트는 도메인 리로드를 트리거하며, CLI가 자동으로 결과를 폴링합니다.
 
 ### 도구 목록
 
