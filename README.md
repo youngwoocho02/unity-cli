@@ -77,11 +77,11 @@ Once added, the Connector starts automatically when Unity opens. No configuratio
 
 ### Recommended: Disable Editor Throttling
 
-By default, Unity throttles editor updates when the window is unfocused. This means CLI commands may not execute until you click back into Unity.
+By default, Unity throttles editor updates when the window is unfocused. This can delay CLI commands because Unity API work is dispatched on the Editor main thread.
 
 To fix this, go to **Edit → Preferences → General → Interaction Mode** and set it to **No Throttling**.
 
-This ensures CLI commands are processed immediately, even when Unity is in the background.
+The connector also requests a PlayerLoop update whenever a CLI request arrives. No Throttling is still recommended for the most responsive background behavior.
 
 ## Quick Start
 

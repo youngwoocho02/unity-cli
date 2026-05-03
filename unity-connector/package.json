@@ -1,6 +1,6 @@
 {
   "name": "com.youngwoocho02.unity-cli-connector",
-  "version": "0.3.16",
+  "version": "0.3.17",
   "displayName": "Unity CLI Connector",
   "description": "HTTP bridge for unity-cli. Receives CLI commands and dispatches to registered tool handlers.",
   "unity": "6000.0",

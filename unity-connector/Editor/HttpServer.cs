@@ -15,8 +15,8 @@ namespace UnityCliConnector
     /// <summary>
     /// Lightweight HTTP server on localhost. Receives CLI commands as POST /command,
     /// dispatches via CommandRouter, returns JSON responses.
-    /// Uses ConcurrentQueue + EditorApplication.update for main-thread marshaling
-    /// so commands execute even when Unity is unfocused.
+    /// Uses ConcurrentQueue + EditorApplication.update for main-thread marshaling.
+    /// Background editor throttling can still delay command execution.
     /// Survives domain reloads via InitializeOnLoad.
     /// </summary>
     [InitializeOnLoad]
@@ -113,6 +113,8 @@ namespace UnityCliConnector
 
         static void ForceEditorUpdate()
         {
+            try { EditorApplication.QueuePlayerLoopUpdate(); }
+            catch { }
             try { UnityEditorInternal.InternalEditorUtility.RepaintAllViews(); }
             catch { }
         }

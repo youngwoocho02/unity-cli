@@ -77,11 +77,11 @@ https://github.com/youngwoocho02/unity-cli.git?path=unity-connector
 
 ### 권장: Editor 쓰로틀링 비활성화
 
-기본적으로 Unity는 창이 포커스를 잃으면 에디터 업데이트를 쓰로틀링합니다. 이 경우 Unity를 다시 클릭하기 전까지 CLI 명령이 실행되지 않을 수 있습니다.
+기본적으로 Unity는 창이 포커스를 잃으면 에디터 업데이트를 쓰로틀링합니다. Unity API 작업은 Editor 메인 스레드에서 디스패치되므로 CLI 명령 처리가 지연될 수 있습니다.
 
 **Edit → Preferences → General → Interaction Mode**에서 **No Throttling**으로 설정하세요.
 
-이렇게 하면 Unity가 백그라운드에 있어도 CLI 명령이 즉시 처리됩니다.
+커넥터도 CLI 요청이 들어올 때마다 PlayerLoop 업데이트를 요청합니다. 그래도 백그라운드 응답성을 가장 안정적으로 유지하려면 No Throttling 설정을 권장합니다.
 
 ## 빠른 시작
 
