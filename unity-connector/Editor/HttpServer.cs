@@ -30,9 +30,12 @@ namespace UnityCliConnector
         static HttpListener s_Listener;
         static CancellationTokenSource s_Cts;
         static int s_Port;
+        static SynchronizationContext s_MainContext;
         static double s_NextStartAttemptTime;
         static string s_LastFailureMessage;
         static double s_LastFailureLogTime;
+        static bool s_Stopping;
+        static bool s_RestartPending;
 
         static readonly ConcurrentQueue<WorkItem> s_Queue = new();
 
@@ -45,6 +48,7 @@ namespace UnityCliConnector
 
         static HttpServer()
         {
+            s_MainContext = SynchronizationContext.Current;
             Start();
             EditorApplication.quitting += Stop;
             AssemblyReloadEvents.beforeAssemblyReload += StopListener;
@@ -57,8 +61,10 @@ namespace UnityCliConnector
 
         static void Start()
         {
+            s_Stopping = false;
             if (IsRunning) return;
             if (s_Listener != null) StopListener();
+            s_Stopping = false;
 
             for (var attempt = 0; attempt < MAX_PORT_ATTEMPTS; attempt++)
             {
@@ -84,7 +90,7 @@ namespace UnityCliConnector
                 s_Port = port;
                 var cts = new CancellationTokenSource();
                 s_Cts = cts;
-                s_NextStartAttemptTime = 0;
+                ClearRetry();
                 ClearStartFailure();
 
                 _ = ListenLoop(listener, cts);
@@ -114,6 +120,11 @@ namespace UnityCliConnector
             s_NextStartAttemptTime = EditorApplication.timeSinceStartup + AUTO_RESTART_INTERVAL;
         }
 
+        static void ClearRetry()
+        {
+            s_NextStartAttemptTime = 0;
+        }
+
         static void LogStartFailure(string message, bool error = false)
         {
             var now = EditorApplication.timeSinceStartup;
@@ -134,6 +145,10 @@ namespace UnityCliConnector
 
         static void StopListener()
         {
+            s_Stopping = true;
+            s_RestartPending = false;
+            ClearRetry();
+
             if (s_Listener == null) return;
 
             s_Cts?.Cancel();
@@ -162,15 +177,25 @@ namespace UnityCliConnector
 
         static void ForceEditorUpdate()
         {
-            try { EditorApplication.QueuePlayerLoopUpdate(); }
-            catch { }
-            try { UnityEditorInternal.InternalEditorUtility.RepaintAllViews(); }
-            catch { }
+            s_MainContext?.Post(_ =>
+            {
+                try { EditorApplication.QueuePlayerLoopUpdate(); }
+                catch { }
+                try { UnityEditorInternal.InternalEditorUtility.RepaintAllViews(); }
+                catch { }
+            }, null);
         }
 
         static void ProcessQueue()
         {
-            if (!IsRunning && EditorApplication.timeSinceStartup >= s_NextStartAttemptTime)
+            if (s_RestartPending)
+            {
+                s_RestartPending = false;
+                Heartbeat.MarkStopped();
+                ScheduleRetry();
+            }
+
+            if (!IsRunning && s_NextStartAttemptTime > 0 && EditorApplication.timeSinceStartup >= s_NextStartAttemptTime)
                 Start();
 
             while (s_Queue.TryDequeue(out var item))
@@ -216,13 +241,12 @@ namespace UnityCliConnector
             }
             catch (Exception ex)
             {
-                Debug.LogError($"[UnityCliConnector] ListenLoop crashed: {ex.Message}");
+                System.Diagnostics.Debug.WriteLine($"[UnityCliConnector] ListenLoop crashed: {ex.Message}");
             }
             finally
             {
-                if (!ct.IsCancellationRequested && ReferenceEquals(s_Listener, listener))
+                if (!ct.IsCancellationRequested && !s_Stopping && ReferenceEquals(s_Listener, listener))
                 {
-                    Debug.LogWarning("[UnityCliConnector] ListenLoop exited unexpectedly — cleaning up for auto-recovery");
                     try
                     {
                         listener.Stop();
@@ -233,12 +257,8 @@ namespace UnityCliConnector
                     }
                     s_Listener = null;
                     if (ReferenceEquals(s_Cts, cts))
-                    {
-                        s_Cts.Dispose();
                         s_Cts = null;
-                    }
-                    Heartbeat.MarkStopped();
-                    ScheduleRetry();
+                    s_RestartPending = true;
                 }
             }
         }
@@ -294,7 +314,7 @@ namespace UnityCliConnector
                     }
                     else
                     {
-                        var tcs = new TaskCompletionSource<object>();
+                        var tcs = new TaskCompletionSource<object>(TaskCreationOptions.RunContinuationsAsynchronously);
                         s_Queue.Enqueue(new WorkItem
                         {
                             Command = command,
