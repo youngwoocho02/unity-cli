@@ -59,7 +59,7 @@ namespace UnityCliConnector
 
         static void Tick()
         {
-            if (HttpServer.Port == 0) return;
+            if (!HttpServer.IsRunning) return;
 
             var now = EditorApplication.timeSinceStartup;
             if (now - s_LastWrite < INTERVAL) return;
@@ -130,7 +130,11 @@ namespace UnityCliConnector
 
         public static void Cleanup()
         {
-            if (HttpServer.Port == 0) return;
+            MarkStopped();
+        }
+
+        public static void MarkStopped()
+        {
             s_ForcedState = "stopped";
             Write();
         }
