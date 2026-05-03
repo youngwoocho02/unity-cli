@@ -342,6 +342,7 @@ unity-cli status
 | `--port <N>` | 활성 heartbeat 포트로 Unity 인스턴스 선택 | auto |
 | `--project <path>` | 프로젝트 경로로 Unity 인스턴스 선택 | latest |
 | `--timeout <ms>` | HTTP 요청 타임아웃 | 120000 |
+| `--ignore-version-mismatch` | CLI와 connector 버전이 달라도 실행 | false |
 
 ```bash
 # 특정 Unity 인스턴스에 연결
@@ -349,6 +350,9 @@ unity-cli --port 8091 editor play
 
 # 여러 Unity 인스턴스 중 프로젝트 경로로 선택
 unity-cli --project MyGame editor stop
+
+# 설치된 connector 릴리스 버전이 달라도 그대로 실행
+unity-cli --ignore-version-mismatch status
 ```
 
 모든 명령어에 `--help`를 붙이면 상세 사용법을 볼 수 있습니다:

@@ -342,6 +342,7 @@ The CLI also checks Unity's state automatically before sending any command. If U
 | `--port <N>` | Select Unity instance by active heartbeat port | auto |
 | `--project <path>` | Select Unity instance by project path | latest |
 | `--timeout <ms>` | HTTP request timeout | 120000 |
+| `--ignore-version-mismatch` | Run even when CLI and connector versions differ | false |
 
 ```bash
 # Select an active Unity instance by heartbeat port
@@ -349,6 +350,9 @@ unity-cli --port 8091 editor play
 
 # Select by project path when multiple Unity instances are open
 unity-cli --project MyGame editor stop
+
+# Run anyway when the installed connector has a different release version
+unity-cli --ignore-version-mismatch status
 ```
 
 Use `--help` on any command for detailed usage:

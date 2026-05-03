@@ -22,7 +22,7 @@ func statusCmd(inst *client.Instance) error {
 	age := time.Since(time.UnixMilli(status.Timestamp))
 	if age > 3*time.Second {
 		fmt.Fprintf(os.Stderr, "Unity (port %d): not responding (last heartbeat %s ago)\n", status.Port, age.Truncate(time.Second))
-		return checkConnectorVersion(status, Version)
+		return checkConnectorVersion(status, Version, flagIgnoreVersionMismatch)
 	}
 
 	fmt.Printf("Unity (port %d): %s\n", status.Port, status.State)
@@ -30,7 +30,7 @@ func statusCmd(inst *client.Instance) error {
 	fmt.Printf("  Version: %s\n", status.UnityVersion)
 	fmt.Printf("  Connector: %s\n", connectorVersionLabel(status.ConnectorVersion))
 	fmt.Printf("  PID:     %d\n", status.PID)
-	return checkConnectorVersion(status, Version)
+	return checkConnectorVersion(status, Version, flagIgnoreVersionMismatch)
 }
 
 func discoverStatusInstance(project string, port int) (*client.Instance, error) {
@@ -52,8 +52,11 @@ func connectorVersionLabel(version string) string {
 	return version
 }
 
-func checkConnectorVersion(inst *client.Instance, cliVersion string) error {
+func checkConnectorVersion(inst *client.Instance, cliVersion string, ignoreMismatch bool) error {
 	if normalizeVersion(cliVersion) == "dev" {
+		return nil
+	}
+	if ignoreMismatch {
 		return nil
 	}
 	if inst == nil {
@@ -62,10 +65,10 @@ func checkConnectorVersion(inst *client.Instance, cliVersion string) error {
 
 	connectorVersion := strings.TrimSpace(inst.ConnectorVersion)
 	if connectorVersion == "" {
-		return fmt.Errorf("connector version is unknown; update the Unity Connector package to match unity-cli %s", cliVersion)
+		return fmt.Errorf("connector version is unknown; update the Unity Connector package to match unity-cli %s, or rerun with --ignore-version-mismatch", cliVersion)
 	}
 	if normalizeVersion(connectorVersion) != normalizeVersion(cliVersion) {
-		return fmt.Errorf("connector version mismatch: unity-cli %s, connector %s. Update both to the same release", cliVersion, connectorVersion)
+		return fmt.Errorf("connector version mismatch: unity-cli %s, connector %s. Update both to the same release, or rerun with --ignore-version-mismatch", cliVersion, connectorVersion)
 	}
 	return nil
 }

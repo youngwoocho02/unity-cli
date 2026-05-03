@@ -136,6 +136,9 @@ func TestStatusCmd_ReturnsConnectorVersionMismatch(t *testing.T) {
 	if !strings.Contains(err.Error(), "connector version mismatch") {
 		t.Fatalf("expected mismatch error, got %v", err)
 	}
+	if !strings.Contains(err.Error(), "--ignore-version-mismatch") {
+		t.Fatalf("expected ignore option hint, got %v", err)
+	}
 }
 
 func TestStatusCmd_ReturnsMissingConnectorVersion(t *testing.T) {
@@ -158,6 +161,9 @@ func TestStatusCmd_ReturnsMissingConnectorVersion(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "connector version is unknown") {
 		t.Fatalf("expected missing version error, got %v", err)
+	}
+	if !strings.Contains(err.Error(), "--ignore-version-mismatch") {
+		t.Fatalf("expected ignore option hint, got %v", err)
 	}
 }
 
@@ -207,30 +213,50 @@ func TestStatusCmd_ReturnsConnectorVersionMismatchWhenStale(t *testing.T) {
 
 func TestCheckConnectorVersion_AllowsMatchingLeadingV(t *testing.T) {
 	inst := &client.Instance{ConnectorVersion: "0.3.10"}
-	if err := checkConnectorVersion(inst, "v0.3.10"); err != nil {
+	if err := checkConnectorVersion(inst, "v0.3.10", false); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }
 
 func TestCheckConnectorVersion_RejectsMismatch(t *testing.T) {
 	inst := &client.Instance{ConnectorVersion: "0.3.9"}
-	err := checkConnectorVersion(inst, "v0.3.10")
+	err := checkConnectorVersion(inst, "v0.3.10", false)
 	if err == nil {
 		t.Fatal("expected mismatch error")
+	}
+	if !strings.Contains(err.Error(), "--ignore-version-mismatch") {
+		t.Fatalf("expected ignore option hint, got %v", err)
 	}
 }
 
 func TestCheckConnectorVersion_RejectsMissingConnectorVersion(t *testing.T) {
 	inst := &client.Instance{}
-	err := checkConnectorVersion(inst, "v0.3.10")
+	err := checkConnectorVersion(inst, "v0.3.10", false)
 	if err == nil {
 		t.Fatal("expected missing connector version error")
+	}
+	if !strings.Contains(err.Error(), "--ignore-version-mismatch") {
+		t.Fatalf("expected ignore option hint, got %v", err)
 	}
 }
 
 func TestCheckConnectorVersion_SkipsDevCliVersion(t *testing.T) {
 	inst := &client.Instance{ConnectorVersion: "0.3.10"}
-	if err := checkConnectorVersion(inst, "dev"); err != nil {
+	if err := checkConnectorVersion(inst, "dev", false); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestCheckConnectorVersion_IgnoreMismatchAllowsMismatch(t *testing.T) {
+	inst := &client.Instance{ConnectorVersion: "0.3.9"}
+	if err := checkConnectorVersion(inst, "v0.3.10", true); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestCheckConnectorVersion_IgnoreMismatchAllowsMissingConnectorVersion(t *testing.T) {
+	inst := &client.Instance{}
+	if err := checkConnectorVersion(inst, "v0.3.10", true); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }

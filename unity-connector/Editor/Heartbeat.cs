@@ -4,7 +4,6 @@ using System.Security.Cryptography;
 using System.Text;
 using Newtonsoft.Json;
 using UnityEditor;
-using UnityEditor.PackageManager;
 using UnityEngine;
 
 namespace UnityCliConnector
@@ -17,10 +16,10 @@ namespace UnityCliConnector
 
         static double s_LastWrite;
         const double INTERVAL = 0.5;
+        const string CONNECTOR_VERSION = "0.3.15";
         static string s_ForcedState;
         static double s_CompileRequestTime;
         static string s_FilePath;
-        static string s_ConnectorVersion;
 
         static Heartbeat()
         {
@@ -117,11 +116,7 @@ namespace UnityCliConnector
 
         static string GetConnectorVersion()
         {
-            if (s_ConnectorVersion != null) return s_ConnectorVersion;
-
-            var package = UnityEditor.PackageManager.PackageInfo.FindForAssembly(typeof(Heartbeat).Assembly);
-            s_ConnectorVersion = package?.version;
-            return s_ConnectorVersion;
+            return CONNECTOR_VERSION;
         }
 
         static string GetState()

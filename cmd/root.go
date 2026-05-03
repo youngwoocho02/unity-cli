@@ -15,15 +15,17 @@ import (
 var Version = "dev"
 
 var (
-	flagPort    int
-	flagProject string
-	flagTimeout int
+	flagPort                  int
+	flagProject               string
+	flagTimeout               int
+	flagIgnoreVersionMismatch bool
 )
 
 func Execute() error {
 	flag.IntVar(&flagPort, "port", 0, "Select Unity instance by active heartbeat port")
 	flag.StringVar(&flagProject, "project", "", "Select Unity instance by project path")
 	flag.IntVar(&flagTimeout, "timeout", 120000, "Request timeout in milliseconds")
+	flag.BoolVar(&flagIgnoreVersionMismatch, "ignore-version-mismatch", false, "Run even when CLI and connector versions differ")
 
 	flag.Usage = func() { printHelp() }
 
@@ -94,7 +96,7 @@ func Execute() error {
 	if err != nil {
 		return err
 	}
-	if err := checkConnectorVersion(alive, Version); err != nil {
+	if err := checkConnectorVersion(alive, Version, flagIgnoreVersionMismatch); err != nil {
 		return err
 	}
 
@@ -104,7 +106,7 @@ func Execute() error {
 		if err != nil {
 			return nil, err
 		}
-		if err := checkConnectorVersion(inst, Version); err != nil {
+		if err := checkConnectorVersion(inst, Version, flagIgnoreVersionMismatch); err != nil {
 			return nil, err
 		}
 		return client.Send(inst, command, params, timeout)
@@ -120,7 +122,7 @@ func Execute() error {
 		if resolveErr != nil {
 			return resolveErr
 		}
-		if err := checkConnectorVersion(currentInst, Version); err != nil {
+		if err := checkConnectorVersion(currentInst, Version, flagIgnoreVersionMismatch); err != nil {
 			return err
 		}
 		testSend := func(command string, params interface{}) (*client.CommandResponse, error) {
@@ -283,11 +285,13 @@ func readStdinIfPiped(args []string) []string {
 	return append([]string{code}, args...)
 }
 
-// splitArgs separates global flags (--port, --project, --timeout) from subcommand args.
+// splitArgs separates global flags from subcommand args.
 // Global flags must be parsed by flag.CommandLine before the subcommand runs.
 func splitArgs(args []string) (flags, commands []string) {
 	for i := 0; i < len(args); i++ {
-		if args[i] == "--port" || args[i] == "--project" || args[i] == "--timeout" {
+		if args[i] == "--ignore-version-mismatch" {
+			flags = append(flags, args[i])
+		} else if args[i] == "--port" || args[i] == "--project" || args[i] == "--timeout" {
 			flags = append(flags, args[i])
 			if i+1 < len(args) {
 				i++
@@ -385,6 +389,8 @@ Global Options:
   --port <N>          Select Unity instance by active heartbeat port
   --project <path>    Select Unity instance by project path
   --timeout <ms>      Request timeout in ms (default: 120000)
+  --ignore-version-mismatch
+                      Run even when CLI and connector versions differ
 
 Use "unity-cli <command> --help" for more information about a command.
 
