@@ -1,7 +1,9 @@
 using System;
+using System.Collections.Generic;
 using Newtonsoft.Json.Linq;
 using UnityEditor;
 using UnityEditor.Compilation;
+using UnityEngine.SceneManagement;
 
 namespace UnityCliConnector.Tools
 {
@@ -32,6 +34,10 @@ namespace UnityCliConnector.Tools
             bool force = p.GetBool("force");
 
             bool compileRequested = false;
+            var dirtyScenes = GetDirtyOpenScenes();
+            var warning = dirtyScenes.Count > 0
+                ? "Open scenes have unsaved changes. If Unity becomes unresponsive, an editor modal such as \"open scene changed on disk, reload?\" may be blocking the refresh."
+                : null;
 
             if (!force && EditorApplication.isPlayingOrWillChangePlaymode)
             {
@@ -54,7 +60,23 @@ namespace UnityCliConnector.Tools
                 refresh_triggered = true,
                 compile_requested = compileRequested,
                 force = force,
+                warning = warning,
+                dirty_scenes = dirtyScenes,
             });
+        }
+
+        private static List<string> GetDirtyOpenScenes()
+        {
+            var scenes = new List<string>();
+            for (var i = 0; i < SceneManager.sceneCount; i++)
+            {
+                var scene = SceneManager.GetSceneAt(i);
+                if (!scene.isDirty)
+                    continue;
+
+                scenes.Add(string.IsNullOrEmpty(scene.path) ? scene.name : scene.path);
+            }
+            return scenes;
         }
     }
 }
