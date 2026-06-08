@@ -178,7 +178,13 @@ func DiscoverInstance(project string) (*Instance, error) {
 }
 
 func normalizeProjectPath(path string) string {
-	normalized := strings.TrimRight(filepath.ToSlash(path), "/")
+	normalized := filepath.Clean(path)
+	if filepath.IsAbs(normalized) {
+		if resolved, err := filepath.EvalSymlinks(normalized); err == nil {
+			normalized = resolved
+		}
+	}
+	normalized = strings.TrimRight(filepath.ToSlash(normalized), "/")
 	if runtime.GOOS == "windows" {
 		normalized = strings.ToLower(normalized)
 	}
