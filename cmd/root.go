@@ -333,34 +333,41 @@ func buildParams(args []string, base map[string]interface{}) (map[string]interfa
 	}
 
 	var positional []string
-	flags := map[string]string{}
+	flags := map[string][]string{}
 	for i := 0; i < len(args); i++ {
 		a := args[i]
 		if strings.HasPrefix(a, "--") {
 			key := a[2:]
 			if i+1 < len(args) && !strings.HasPrefix(args[i+1], "--") {
-				flags[key] = args[i+1]
+				flags[key] = append(flags[key], args[i+1])
 				i++
 			} else {
-				flags[key] = "true"
+				flags[key] = append(flags[key], "true")
 			}
 		} else {
 			positional = append(positional, a)
 		}
 	}
 
-	if raw, ok := flags["params"]; ok {
+	if values, ok := flags["params"]; ok && len(values) > 0 {
+		raw := values[len(values)-1]
 		if jsonErr := json.Unmarshal([]byte(raw), &params); jsonErr != nil {
 			return nil, fmt.Errorf("invalid JSON in --params: %w", jsonErr)
 		}
 	}
-	for k, v := range flags {
+	for k, values := range flags {
 		if k == "params" {
 			continue
 		}
 		if _, exists := params[k]; exists {
 			continue
 		}
+		if k == "usings" {
+			params[k] = normalizeUsings(values)
+			continue
+		}
+
+		v := values[len(values)-1]
 		if n, err := strconv.Atoi(v); err == nil {
 			params[k] = n
 		} else if v == "true" {
@@ -377,6 +384,22 @@ func buildParams(args []string, base map[string]interface{}) (map[string]interfa
 	}
 
 	return params, nil
+}
+
+func normalizeUsings(values []string) []string {
+	var result []string
+	seen := map[string]bool{}
+	for _, value := range values {
+		for _, item := range strings.Split(value, ",") {
+			using := strings.TrimSpace(item)
+			if using == "" || seen[using] {
+				continue
+			}
+			seen[using] = true
+			result = append(result, using)
+		}
+	}
+	return result
 }
 
 func rejectRemovedFlags(args []string) error {
@@ -450,7 +473,7 @@ Console:
 Execute C#:
   exec "<code>"                 Run C# code in Unity (return required for output)
   echo '<code>' | exec          Pipe code via stdin (avoids shell escaping)
-  exec "<code>" --usings x,y    Add extra using directives
+  exec "<code>" --usings x,y    Add extra using directives (repeatable)
 
   Examples:
     exec "Time.time"
@@ -573,7 +596,7 @@ UnityEditor, and all loaded assemblies.
 Use 'return' to get output. Add --usings for types outside default namespaces.
 
 Options:
-  --usings <ns1,ns2>   Add extra using directives
+  --usings <ns1,ns2>   Add extra using directives (comma-separated or repeatable)
   --csc <path>         Path to csc compiler (csc.dll or csc.exe). Auto-detected if omitted.
   --dotnet <path>      Path to dotnet runtime. Auto-detected if omitted.
 
@@ -588,10 +611,11 @@ Examples:
   echo 'return EditorSceneManager.GetActiveScene().name;' | unity-cli exec
   echo 'Debug.Log("hello"); return null;' | unity-cli exec
   unity-cli exec "return World.All.Count;" --usings Unity.Entities
+  unity-cli exec "return World.All.Count;" --usings Unity.Entities --usings Unity.Mathematics
 
 Stdin:
   Pipe code via stdin to avoid shell escaping issues.
-  echo '<code>' | unity-cli exec [--usings ns1,ns2]
+  echo '<code>' | unity-cli exec [--usings ns1,ns2] [--usings ns3]
 
 Notes:
   - Use 'return' for output, 'return null;' for void operations

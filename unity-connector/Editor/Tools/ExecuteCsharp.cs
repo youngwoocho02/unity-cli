@@ -35,7 +35,7 @@ namespace UnityCliConnector.Tools
             [ToolParameter("C# code to execute. Use 'return' for output.", Required = true)]
             public string Code { get; set; }
 
-            [ToolParameter("Additional using directives (comma-separated, e.g. Unity.Entities,Unity.Mathematics)")]
+            [ToolParameter("Additional using directives (comma-separated or repeated CLI --usings, e.g. Unity.Entities,Unity.Mathematics)")]
             public string[] Usings { get; set; }
 
             [ToolParameter("Path to csc compiler (csc.dll or csc.exe). Auto-detected if omitted.")]

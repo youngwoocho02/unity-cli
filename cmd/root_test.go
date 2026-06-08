@@ -605,6 +605,31 @@ func TestBuildParams_StringParsing(t *testing.T) {
 	}
 }
 
+func TestBuildParams_UsingsParsing(t *testing.T) {
+	p, err := buildParams([]string{
+		"--usings", "UnityEditor.Build.Profile, Accelix.Editor.Tools.BuildManager",
+		"--usings", "Unity.Entities",
+		"--usings", "Unity.Entities",
+	}, nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	got, ok := p["usings"].([]string)
+	if !ok {
+		t.Fatalf("expected usings []string, got %T: %v", p["usings"], p["usings"])
+	}
+
+	want := []string{
+		"UnityEditor.Build.Profile",
+		"Accelix.Editor.Tools.BuildManager",
+		"Unity.Entities",
+	}
+	if !sliceEqual(got, want) {
+		t.Errorf("expected usings=%v, got %v", want, got)
+	}
+}
+
 func TestBuildParams_BaseParams(t *testing.T) {
 	p, err := buildParams([]string{"--depth", "5"}, map[string]interface{}{"action": "hierarchy"})
 	if err != nil {
