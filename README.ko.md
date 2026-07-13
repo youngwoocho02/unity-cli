@@ -147,6 +147,7 @@ Unity 커넥터의 동작:
 | `console` | 콘솔 로그 읽기, 필터링, 지우기 |
 | `exec` | Unity 안에서 임의 C# 코드 실행 |
 | `test` | EditMode/PlayMode 테스트 실행 |
+| `verify` | 컴파일, Play 모드, 콘솔 에러 확인, 정리를 한 번에 실행 |
 | `menu` | Unity 메뉴 아이템을 경로로 실행 |
 | `reserialize` | Unity 시리얼라이저를 통해 에셋 재직렬화 |
 | `screenshot` | Scene/Game 뷰를 PNG로 캡처 |
@@ -305,6 +306,24 @@ unity-cli test --filter MyTestClass
 ```
 
 Unity Test Framework 패키지가 필요합니다. PlayMode 테스트는 도메인 리로드를 일으키며, CLI는 결과 파일을 폴링합니다.
+
+### Verify Project
+
+Common validation flow를 한 번에 실행합니다: refresh/compile, Unity ready 대기, play mode 진입, console error 확인, 그리고 `verify`가 시작한 play mode 정리.
+
+```bash
+# 전체 검증 플로우
+unity-cli verify
+
+# 스크립트가 이미 최신이면 compile 생략
+unity-cli verify --skip-compile
+
+# 수동 확인을 위해 play mode 유지
+unity-cli verify --keep-playing
+
+# 더 많은 console error와 user stack frame 확인
+unity-cli verify --console-lines 100 --stacktrace user
+```
 
 ### 도구 목록
 

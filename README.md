@@ -147,6 +147,7 @@ Before compiling or reloading, the Connector records the state (`compiling`, `re
 | `console` | Read, filter, and clear console logs |
 | `exec` | Run arbitrary C# code inside Unity |
 | `test` | Run EditMode/PlayMode tests |
+| `verify` | Compile, enter play mode, inspect console errors, and stop |
 | `menu` | Execute any Unity menu item by path |
 | `reserialize` | Re-serialize assets through Unity's serializer |
 | `screenshot` | Capture scene/game view as PNG |
@@ -304,6 +305,24 @@ unity-cli test --filter MyTestClass
 ```
 
 Requires the Unity Test Framework package. PlayMode tests trigger a domain reload; the CLI polls for results automatically.
+
+### Verify Project
+
+Run the common agent validation flow in one command: refresh and compile scripts, wait until Unity is ready, enter play mode, inspect console errors, then stop play mode if `verify` started it.
+
+```bash
+# Full verification flow
+unity-cli verify
+
+# Skip compilation when scripts are already fresh
+unity-cli verify --skip-compile
+
+# Leave the Editor playing for manual inspection
+unity-cli verify --keep-playing
+
+# Inspect more console errors with user stack frames
+unity-cli verify --console-lines 100 --stacktrace user
+```
 
 ### List Tools
 

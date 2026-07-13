@@ -108,6 +108,8 @@ func Execute() error {
 	switch category {
 	case "editor":
 		resp, err = editorCmd(subArgs, send, resolve)
+	case "verify":
+		resp, err = verifyCmd(subArgs, send, resolve)
 	case "test":
 		resp, err = testCmd(subArgs, send, resolve)
 	case "exec":
@@ -566,6 +568,12 @@ Tests:
   test --mode PlayMode            Run PlayMode tests
   test --filter <name>            Filter by namespace, class, or full test name
 
+Verify:
+  verify                          Compile, enter play mode, check console errors, stop
+  verify --skip-compile           Skip script compilation
+  verify --skip-play              Check compile and console without entering play mode
+  verify --keep-playing           Leave Unity in play mode after verification
+
 Profiler:
   profiler hierarchy              Top-level profiler samples (last frame)
   profiler hierarchy --depth 5    Recursive drill-down (0=unlimited)
@@ -771,6 +779,29 @@ Examples:
   unity-cli test --mode PlayMode
   unity-cli test --filter MyNamespace.MyTests
   unity-cli test --mode EditMode --filter MyNamespace.MyTests.SpecificTest
+`)
+	case "verify":
+		fmt.Print(`Usage: unity-cli verify [options]
+
+Run a common Unity validation flow:
+  1. Refresh assets and request script compilation
+  2. Wait until Unity is ready
+  3. Enter play mode and wait until fully entered
+  4. Read console errors
+  5. Stop play mode if verify started it
+
+Options:
+  --skip-compile              Skip refresh and script compilation
+  --skip-play                 Do not enter play mode
+  --keep-playing              Leave Unity in play mode after verification
+  --console-lines <N>         Console entries to inspect (default: 50)
+  --console-type <types>      Log types to inspect (default: error)
+  --stacktrace <mode>         none, user, or full (default: none)
+
+Examples:
+  unity-cli verify
+  unity-cli verify --skip-compile
+  unity-cli verify --console-lines 100 --stacktrace user
 `)
 	case "list":
 		fmt.Print(`Usage: unity-cli list
