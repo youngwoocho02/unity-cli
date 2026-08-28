@@ -109,10 +109,12 @@ $ unity-cli editor play --wait
     ├─ scans ~/.unity-cli/instances/*.json
     │  → selects the Unity instance for this project
     │
+    ├─ waits until Unity can accept a command
+    │  (not compiling / reloading / busy)
+    │
     ├─ sends command to the selected Unity listener
     │  { "command": "manage_editor",
-    │    "params": { "action": "play",
-    │                "wait_for_completion": true }}
+    │    "params": { "action": "play" }}
     │                                      │
     │                                  HttpServer receives
     │                                      │
@@ -120,11 +122,10 @@ $ unity-cli editor play --wait
     │                                      │
     │                                  ManageEditor.HandleCommand()
     │                                  → EditorApplication.isPlaying = true
-    │                                  → waits for PlayModeStateChange
     │                                      │
     ├─ receives JSON response  ←───────────┘
-    │  { "success": true,
-    │    "message": "Entered play mode (confirmed)." }
+    │
+    ├─ polls heartbeat until state is playing
     │
     └─ prints: Entered play mode (confirmed).
 ```
@@ -137,7 +138,7 @@ The Unity Connector:
 5. Routes incoming commands to the matching handler on the main thread
 6. Survives domain reloads (script recompilation)
 
-Before compiling or reloading, the Connector records the state (`compiling`, `reloading`) to the instance file. When the main thread freezes, the timestamp stops updating. The CLI detects this and waits for a fresh timestamp before sending commands.
+Before compiling or reloading, the Connector records the state (`compiling`, `reloading`) to the instance file. `/command` is accepted only when Unity can dispatch. Otherwise the CLI waits and tries again until `--timeout`.
 
 ## Built-in Commands
 
@@ -333,14 +334,14 @@ unity-cli status
 #   PID:     12345
 ```
 
-The CLI also checks Unity's state automatically before sending any command. If Unity is busy (compiling, reloading), it waits for Unity to become responsive.
+Send a command once. The CLI waits until Unity can accept it, then delivers one response. It does not leave a request hanging and does not need a second send. `--timeout` bounds that wait.
 
 ## Global Options
 
 | Flag | Description | Default |
 |------|-------------|---------|
 | `--project <path>` | Select Unity instance by project path | auto |
-| `--timeout <ms>` | HTTP request timeout | 120000 |
+| `--timeout <ms>` | Wait for Unity to accept, then for the response | 120000 |
 | `--ignore-version-mismatch` | Skip CLI/connector version check | false |
 
 ```bash

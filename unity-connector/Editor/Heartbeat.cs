@@ -144,12 +144,27 @@ namespace UnityCliConnector
             return CONNECTOR_VERSION;
         }
 
+        public static string LastState => s_LastState ?? "starting";
+
+        public static bool IsDispatchableState()
+        {
+            switch (LastState)
+            {
+                case "ready":
+                case "playing":
+                case "paused":
+                    return s_LastTimestamp > 0 && s_LastPid > 0 && !string.IsNullOrEmpty(s_LastProjectPath);
+                default:
+                    return false;
+            }
+        }
+
         public static object HealthSnapshot()
         {
             var ready = s_LastTimestamp > 0 && !string.IsNullOrEmpty(s_LastProjectPath) && s_LastPid > 0;
             return new
             {
-                state = s_LastState ?? "starting",
+                state = LastState,
                 projectPath = s_LastProjectPath ?? "",
                 port = HttpServer.Port,
                 pid = s_LastPid,
@@ -159,6 +174,7 @@ namespace UnityCliConnector
                 compileErrors = s_LastCompileErrors,
                 listenerRunning = HttpServer.IsRunning,
                 ready,
+                dispatchable = ready && HttpServer.CanAcceptCommand(),
             };
         }
 

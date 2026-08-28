@@ -2,6 +2,8 @@ package cmd
 
 import (
 	"fmt"
+	"os"
+	"strings"
 
 	"github.com/youngwoocho02/unity-cli/internal/client"
 )
@@ -19,10 +21,24 @@ func editorCmd(args []string, send sendFn, resolve instanceResolver) (*client.Co
 	switch action {
 	case "play":
 		_, wait := flags["wait"]
-		return send("manage_editor", map[string]interface{}{
+		resp, err := send("manage_editor", map[string]interface{}{
 			"action":              "play",
-			"wait_for_completion": wait,
+			"wait_for_completion": false,
 		})
+		if err != nil || !wait {
+			return resp, err
+		}
+		if resp != nil && !resp.Success {
+			return resp, nil
+		}
+		if err := waitForPlayMode(resolve); err != nil {
+			return nil, err
+		}
+		if resp == nil {
+			resp = &client.CommandResponse{Success: true}
+		}
+		resp.Message = "Entered play mode (confirmed)."
+		return resp, nil
 
 	case "stop":
 		return send("manage_editor", map[string]interface{}{"action": "stop"})
@@ -58,5 +74,37 @@ func editorCmd(args []string, send sendFn, resolve instanceResolver) (*client.Co
 
 	default:
 		return nil, fmt.Errorf("unknown editor action: %s\nAvailable: play, stop, pause, refresh", action)
+	}
+}
+
+func waitForPlayMode(resolve instanceResolver) error {
+	fmt.Fprintln(os.Stderr, "Waiting for play mode...")
+	deadline := commandDeadline(flagTimeout)
+	var lastErr error
+	for {
+		inst, err := resolve()
+		if err != nil {
+			lastErr = err
+		} else if isPlayModeState(inst.State) {
+			fmt.Fprintln(os.Stderr, "Entered play mode.")
+			return nil
+		} else {
+			lastErr = fmt.Errorf("unity state is %s", inst.State)
+		}
+		if !sleepUntilNextPoll(deadline) {
+			if lastErr != nil {
+				return fmt.Errorf("timed out waiting for play mode: %v", lastErr)
+			}
+			return fmt.Errorf("timed out waiting for play mode")
+		}
+	}
+}
+
+func isPlayModeState(state string) bool {
+	switch strings.ToLower(strings.TrimSpace(state)) {
+	case "playing", "paused":
+		return true
+	default:
+		return false
 	}
 }

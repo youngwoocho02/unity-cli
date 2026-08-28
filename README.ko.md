@@ -109,10 +109,12 @@ $ unity-cli editor play --wait
     ├─ ~/.unity-cli/instances/*.json 스캔
     │  → 현재 프로젝트의 Unity 인스턴스 선택
     │
+    ├─ Unity가 명령을 받을 수 있을 때까지 대기
+    │  (컴파일 / 리로드 / 다른 명령 처리 중이 아닐 때)
+    │
     ├─ 선택된 Unity listener로 명령 전송
     │  { "command": "manage_editor",
-    │    "params": { "action": "play",
-    │                "wait_for_completion": true }}
+    │    "params": { "action": "play" }}
     │                                      │
     │                                  HttpServer 수신
     │                                      │
@@ -120,11 +122,10 @@ $ unity-cli editor play --wait
     │                                      │
     │                                  ManageEditor.HandleCommand()
     │                                  → EditorApplication.isPlaying = true
-    │                                  → PlayModeStateChange 대기
     │                                      │
     ├─ JSON 응답 수신  ←──────────────────┘
-    │  { "success": true,
-    │    "message": "Entered play mode (confirmed)." }
+    │
+    ├─ heartbeat가 playing이 될 때까지 확인
     │
     └─ 출력: Entered play mode (confirmed).
 ```
@@ -137,7 +138,7 @@ Unity 커넥터의 동작:
 5. 수신된 명령을 메인 스레드의 해당 핸들러로 라우팅하고
 6. 도메인 리로드(스크립트 재컴파일)에서도 유지됩니다
 
-컴파일이나 리로드 직전에 상태(`compiling`, `reloading`)를 instance 파일에 기록합니다. 메인 스레드가 멈추면 timestamp 갱신이 중단되고, CLI는 새로운 timestamp가 찍힐 때까지 대기한 후 명령을 전송합니다.
+컴파일이나 리로드 직전에 상태(`compiling`, `reloading`)를 instance 파일에 기록합니다. `/command`는 Unity가 바로 처리할 수 있을 때만 접수하고, 아니면 CLI가 `--timeout`까지 기다렸다가 다시 넣습니다.
 
 ## 내장 명령어
 
@@ -334,14 +335,14 @@ unity-cli status
 #   PID:     12345
 ```
 
-명령 전송 전에 CLI가 자동으로 Unity 상태를 확인합니다. Unity가 바쁜 상태(컴파일, 리로드)이면 응답 가능해질 때까지 대기합니다.
+명령은 한 번만 보내면 됩니다. CLI가 Unity가 받을 수 있을 때까지 기다린 뒤 실행하고, 응답 하나를 돌려줍니다. 요청을 붙잡아 두지 않고, 다시 보낼 필요도 없습니다. 이 대기의 상한은 `--timeout`입니다.
 
 ## 글로벌 옵션
 
 | 플래그 | 설명 | 기본값 |
 |--------|------|--------|
 | `--project <path>` | 프로젝트 경로로 Unity 인스턴스 선택 | auto |
-| `--timeout <ms>` | HTTP 요청 타임아웃 | 120000 |
+| `--timeout <ms>` | Unity가 받을 때까지 + 응답 대기 | 120000 |
 | `--ignore-version-mismatch` | CLI/connector 버전 검사 생략 | false |
 
 ```bash

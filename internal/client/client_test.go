@@ -340,6 +340,25 @@ func TestHealth_RejectsProjectMismatch(t *testing.T) {
 	}
 }
 
+func TestHealth_RejectsNotDispatchableSnapshot(t *testing.T) {
+	server, port := healthTestServer(t, http.StatusOK, `{"success":true,"message":"ok","data":{"state":"compiling","projectPath":"/projects/current","port":8090,"pid":123,"timestamp":1000,"ready":true,"dispatchable":false}}`)
+	_ = server
+
+	_, err := Health(&Instance{Port: port}, 1000)
+	if !errors.Is(err, ErrUnityNotAccepting) {
+		t.Fatalf("expected ErrUnityNotAccepting, got %v", err)
+	}
+}
+
+func TestHealth_AllowsLegacySnapshotWithoutDispatchable(t *testing.T) {
+	server, port := healthTestServer(t, http.StatusOK, `{"success":true,"message":"ok","data":{"state":"ready","projectPath":"/projects/current","port":8090,"pid":123,"timestamp":1000,"ready":true}}`)
+	_ = server
+
+	if _, err := Health(&Instance{Port: port}, 1000); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
 func TestHealth_ConnectionErrorDoesNotExposePort(t *testing.T) {
 	port := closedLocalPort(t)
 
@@ -357,17 +376,50 @@ func TestSend_ConnectionErrorDoesNotExposePort(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected connection error")
 	}
+	if !errors.Is(err, ErrUnityUnreachable) {
+		t.Fatalf("expected ErrUnityUnreachable, got %v", err)
+	}
 	assertNoPortLeak(t, err.Error(), port)
 }
 
+func TestSend_ServiceUnavailableIsNotAccepting(t *testing.T) {
+	server, port := commandTestServer(t, http.StatusServiceUnavailable, `{"success":false,"message":"unity is busy with another command"}`)
+	_ = server
+
+	_, err := Send(&Instance{Port: port}, "exec", nil, 1000)
+	if !errors.Is(err, ErrUnityNotAccepting) {
+		t.Fatalf("expected ErrUnityNotAccepting, got %v", err)
+	}
+}
+
+func TestSend_EmptyBodyIsDisconnected(t *testing.T) {
+	server, port := commandTestServer(t, http.StatusOK, "")
+	_ = server
+
+	_, err := Send(&Instance{Port: port}, "exec", nil, 1000)
+	if !errors.Is(err, ErrUnityDisconnected) {
+		t.Fatalf("expected ErrUnityDisconnected, got %v", err)
+	}
+}
+
 func healthTestServer(t *testing.T, status int, body string) (*http.Server, int) {
+	t.Helper()
+	return localTestServer(t, "/health", status, body)
+}
+
+func commandTestServer(t *testing.T, status int, body string) (*http.Server, int) {
+	t.Helper()
+	return localTestServer(t, "/command", status, body)
+}
+
+func localTestServer(t *testing.T, path string, status int, body string) (*http.Server, int) {
 	t.Helper()
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatalf("failed to listen: %v", err)
 	}
 	mux := http.NewServeMux()
-	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc(path, func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(status)
 		_, _ = w.Write([]byte(body))
 	})

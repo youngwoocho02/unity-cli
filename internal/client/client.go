@@ -26,6 +26,7 @@ type Instance struct {
 	CompileErrors    bool   `json:"compileErrors,omitempty"`
 	Ready            bool   `json:"ready,omitempty"`
 	ListenerRunning  bool   `json:"listenerRunning,omitempty"`
+	Dispatchable     *bool  `json:"dispatchable,omitempty"`
 }
 
 // CommandRequest is the JSON body sent to Unity's HTTP server.
@@ -49,7 +50,19 @@ type HealthResponse struct {
 	Data    Instance `json:"data"`
 }
 
-var ErrHealthEndpointUnavailable = errors.New("unity health endpoint unavailable")
+var (
+	ErrHealthEndpointUnavailable = errors.New("unity health endpoint unavailable")
+	ErrUnityUnreachable          = errors.New("cannot connect to Unity")
+	ErrUnityNotAccepting         = errors.New("unity is not accepting commands")
+	ErrUnityDisconnected         = errors.New("unity closed the connection before responding")
+)
+
+// IsTransientUnityError reports whether the CLI should wait and try the same command again.
+func IsTransientUnityError(err error) bool {
+	return errors.Is(err, ErrUnityUnreachable) ||
+		errors.Is(err, ErrUnityNotAccepting) ||
+		errors.Is(err, ErrUnityDisconnected)
+}
 
 // isProcessDead returns true only when the process is confirmed to not exist.
 // Permission errors or transient failures return false (not confirmed dead),
@@ -259,6 +272,13 @@ func Health(inst *Instance, timeoutMs int) (*Instance, error) {
 	if inst.ProjectPath != "" && normalizeProjectPath(result.Data.ProjectPath) != normalizeProjectPath(inst.ProjectPath) {
 		return nil, fmt.Errorf("unity health project mismatch: expected %s, got %s", inst.ProjectPath, result.Data.ProjectPath)
 	}
+	if result.Data.Dispatchable != nil && !*result.Data.Dispatchable {
+		state := result.Data.State
+		if state == "" {
+			state = "busy"
+		}
+		return nil, fmt.Errorf("%w (%s)", ErrUnityNotAccepting, state)
+	}
 	return &result.Data, nil
 }
 
@@ -286,9 +306,19 @@ func Send(inst *Instance, command string, params interface{}, timeoutMs int) (*C
 
 	resp, err := httpClient.Post(url, "application/json", bytes.NewReader(body))
 	if err != nil {
-		return nil, errors.New("cannot connect to Unity")
+		return nil, ErrUnityUnreachable
 	}
 	defer resp.Body.Close()
+
+	if resp.StatusCode == http.StatusServiceUnavailable {
+		var body []byte
+		body, _ = io.ReadAll(resp.Body)
+		message := parseUnityErrorMessage(body)
+		if message == "" {
+			message = "busy"
+		}
+		return nil, fmt.Errorf("%w: %s", ErrUnityNotAccepting, message)
+	}
 
 	if resp.StatusCode != http.StatusOK {
 		var body []byte
@@ -301,11 +331,7 @@ func Send(inst *Instance, command string, params interface{}, timeoutMs int) (*C
 
 	respBody, err := io.ReadAll(resp.Body)
 	if err != nil || len(respBody) == 0 {
-		// Some commands (e.g. play mode entry) close the connection before responding.
-		return &CommandResponse{
-			Success: true,
-			Message: fmt.Sprintf("%s sent (connection closed before response)", command),
-		}, nil
+		return nil, ErrUnityDisconnected
 	}
 
 	var result CommandResponse
@@ -318,4 +344,15 @@ func Send(inst *Instance, command string, params interface{}, timeoutMs int) (*C
 	}
 
 	return &result, nil
+}
+
+func parseUnityErrorMessage(body []byte) string {
+	if len(body) == 0 {
+		return ""
+	}
+	var result CommandResponse
+	if err := json.Unmarshal(body, &result); err != nil {
+		return strings.TrimSpace(string(body))
+	}
+	return strings.TrimSpace(result.Message)
 }

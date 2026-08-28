@@ -307,6 +307,45 @@ func TestSendWithRetrySmallTimeoutBoundsSendTimeout(t *testing.T) {
 	}
 }
 
+func TestSendWithRetryRetriesTransientNotAccepting(t *testing.T) {
+	origVersion := Version
+	origHealth := healthCheck
+	origSend := sendCommand
+	origPollInterval := statusPollInterval
+	Version = "dev"
+	statusPollInterval = time.Millisecond
+	healthCheck = func(inst *client.Instance, timeoutMs int) (*client.Instance, error) {
+		return &client.Instance{ProjectPath: inst.ProjectPath, Port: inst.Port, Timestamp: 1000, PID: 1, ConnectorVersion: Version, Ready: true}, nil
+	}
+	sendCalls := 0
+	sendCommand = func(inst *client.Instance, command string, params interface{}, timeoutMs int) (*client.CommandResponse, error) {
+		sendCalls++
+		if sendCalls == 1 {
+			return nil, client.ErrUnityNotAccepting
+		}
+		return &client.CommandResponse{Success: true, Message: "ok"}, nil
+	}
+	t.Cleanup(func() {
+		Version = origVersion
+		healthCheck = origHealth
+		sendCommand = origSend
+		statusPollInterval = origPollInterval
+	})
+
+	resp, err := sendWithRetry(func() (*client.Instance, error) {
+		return &client.Instance{ProjectPath: "/projects/current", Port: 8090}, nil
+	}, "exec", nil, 1000)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if resp.Message != "ok" {
+		t.Fatalf("Message: got %q, want ok", resp.Message)
+	}
+	if sendCalls != 2 {
+		t.Fatalf("send calls: got %d, want 2", sendCalls)
+	}
+}
+
 func TestSendWithRetryDoesNotRetryAfterCommandSendFailure(t *testing.T) {
 	origVersion := Version
 	origHealth := healthCheck

@@ -208,6 +208,13 @@ func sendWithRetry(resolve instanceResolver, command string, params interface{},
 				if sendErr == nil {
 					return resp, nil
 				}
+				if client.IsTransientUnityError(sendErr) {
+					lastErr = sendErr
+					if !sleepUntilNextPoll(deadline) {
+						break
+					}
+					continue
+				}
 				return nil, fmt.Errorf("failed sending command to Unity: %v", sendErr)
 			}
 			lastErr = err
@@ -222,6 +229,13 @@ func sendWithRetry(resolve instanceResolver, command string, params interface{},
 		resp, err := sendCommand(health, command, params, commandTimeoutMs(deadline))
 		if err == nil {
 			return resp, nil
+		}
+		if client.IsTransientUnityError(err) {
+			lastErr = err
+			if !sleepUntilNextPoll(deadline) {
+				break
+			}
+			continue
 		}
 		return nil, fmt.Errorf("failed sending command to Unity: %v", err)
 	}
@@ -593,7 +607,7 @@ Update:
 
 Global Options:
   --project <path>    Select Unity instance by project path
-  --timeout <ms>      Request timeout in ms (default: 120000)
+  --timeout <ms>      Wait for Unity to accept, then for the response (default: 120000)
   --ignore-version-mismatch
                       Skip CLI/connector version check
 Use "unity-cli <command> --help" for more information about a command.
@@ -613,7 +627,7 @@ func printTopicHelp(topic string) {
 
 Subcommands:
   play [--wait]       Enter play mode
-                      --wait blocks until Unity fully enters play mode.
+                      --wait waits until heartbeat reports playing.
                       Without --wait, returns immediately after requesting.
   stop                Exit play mode. No effect if not playing.
   pause               Toggle pause. Only works during play mode.

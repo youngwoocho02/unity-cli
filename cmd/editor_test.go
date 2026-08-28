@@ -1,7 +1,9 @@
 package cmd
 
 import (
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/youngwoocho02/unity-cli/internal/client"
 )
@@ -21,13 +23,46 @@ func TestEditorCmd_Play(t *testing.T) {
 }
 
 func TestEditorCmd_PlayWait(t *testing.T) {
+	origInterval := statusPollInterval
+	statusPollInterval = time.Millisecond
+	t.Cleanup(func() { statusPollInterval = origInterval })
+
 	send, params := mockSend("manage_editor", t)
-	resolve := func() (*client.Instance, error) { return nil, nil }
-	if _, err := editorCmd([]string{"play", "--wait"}, send, resolve); err != nil {
+	resolve := func() (*client.Instance, error) {
+		return &client.Instance{State: "playing"}, nil
+	}
+	resp, err := editorCmd([]string{"play", "--wait"}, send, resolve)
+	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if (*params)["wait_for_completion"] != true {
-		t.Errorf("expected wait_for_completion=true, got %v", (*params)["wait_for_completion"])
+	if (*params)["wait_for_completion"] != false {
+		t.Errorf("expected wait_for_completion=false, got %v", (*params)["wait_for_completion"])
+	}
+	if resp == nil || resp.Message != "Entered play mode (confirmed)." {
+		t.Fatalf("response = %#v, want confirmed play mode", resp)
+	}
+}
+
+func TestEditorCmd_PlayWaitTimesOut(t *testing.T) {
+	origInterval := statusPollInterval
+	origTimeout := flagTimeout
+	statusPollInterval = time.Millisecond
+	flagTimeout = 20
+	t.Cleanup(func() {
+		statusPollInterval = origInterval
+		flagTimeout = origTimeout
+	})
+
+	send, _ := mockSend("manage_editor", t)
+	resolve := func() (*client.Instance, error) {
+		return &client.Instance{State: "ready"}, nil
+	}
+	_, err := editorCmd([]string{"play", "--wait"}, send, resolve)
+	if err == nil {
+		t.Fatal("expected play wait timeout")
+	}
+	if !strings.Contains(err.Error(), "timed out waiting for play mode") {
+		t.Fatalf("error = %v, want play mode timeout", err)
 	}
 }
 
