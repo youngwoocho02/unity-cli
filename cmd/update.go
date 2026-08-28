@@ -23,6 +23,7 @@ type ghAsset struct {
 	BrowserDownloadURL string `json:"browser_download_url"`
 }
 
+// updateCmd는 GitHub latest release와 비교한다. --check면 설치하지 않고 알리기만 한다.
 func updateCmd(args []string) error {
 	flags := parseSubFlags(args)
 	_, checkOnly := flags["check"]
@@ -74,7 +75,7 @@ func updateCmd(args []string) error {
 		return fmt.Errorf("chmod failed: %w", err)
 	}
 
-	// Rename dance: backup → replace → cleanup, with restore on failure.
+	// 실행 중인 exe를 바로 덮어쓰지 못한다. 백업 → 교체, 실패하면 백업을 되돌린다.
 	backup := exe + ".bak"
 	if err := os.Rename(exe, backup); err != nil {
 		return fmt.Errorf("backup failed: %w", err)
@@ -93,6 +94,7 @@ func updateCmd(args []string) error {
 	return nil
 }
 
+// fetchLatestRelease는 GitHub Releases API에서 최신 태그/에셋을 가져온다.
 func fetchLatestRelease() (*ghRelease, error) {
 	resp, err := http.Get(repoAPI)
 	if err != nil {
@@ -122,6 +124,7 @@ func findAsset(assets []ghAsset) *ghAsset {
 	return nil
 }
 
+// download는 바이너리를 실행 파일과 같은 폴더의 임시 파일로 받는다.
 func download(url string, targetDir string) (string, error) {
 	resp, err := http.Get(url)
 	if err != nil {

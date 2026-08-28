@@ -15,6 +15,9 @@ namespace UnityCliConnector
     {
         static readonly SemaphoreSlim s_Lock = new(1, 1);
 
+        /// <summary>
+        /// 핸들러를 하나씩만 실행한다. SemaphoreSlim(1,1)이 직렬화한다.
+        /// </summary>
         public static async Task<object> Dispatch(string command, JObject parameters)
         {
             await s_Lock.WaitAsync();
@@ -41,6 +44,7 @@ namespace UnityCliConnector
             {
                 var result = handler.Invoke(null, new object[] { parameters ?? new JObject() });
 
+                // HandleCommand가 Task<object>면 끝날 때까지 기다린다 (테스트 러너 등).
                 if (result is Task<object> asyncTask)
                     return await asyncTask;
 

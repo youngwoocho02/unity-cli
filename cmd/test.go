@@ -19,6 +19,7 @@ type suppressWriter struct {
 	suppress string
 }
 
+// Write는 Unity 도메인 리로드 때 나오는 idle HTTP 경고를 숨긴다.
 func (s *suppressWriter) Write(p []byte) (int, error) {
 	if bytes.Contains(p, []byte(s.suppress)) {
 		return len(p), nil
@@ -26,6 +27,8 @@ func (s *suppressWriter) Write(p []byte) (int, error) {
 	return s.w.Write(p)
 }
 
+// testCmd는 Unity Test Runner를 돌린다.
+// EditMode는 응답에 결과가 바로 온다. PlayMode는 "running" 후 결과 파일을 폴링한다.
 func testCmd(args []string, send sendFn, resolve instanceResolver) (*client.CommandResponse, error) {
 	flags := parseSubFlags(args)
 
@@ -79,10 +82,13 @@ func testCmd(args []string, send sendFn, resolve instanceResolver) (*client.Comm
 	return pollTestResults(runID, resolve)
 }
 
+// newTestRunID는 이번 실행 전용 파일 이름에 쓰는 식별자다.
 func newTestRunID() string {
 	return fmt.Sprintf("%d-%d", os.Getpid(), time.Now().UnixNano())
 }
 
+// pollTestResults는 ~/.unity-cli/status/test-results-<id>.json이 생길 때까지 최대 10분 기다린다.
+// 에디터가 꺼지면 바로 실패한다.
 func pollTestResults(runID string, resolve instanceResolver) (*client.CommandResponse, error) {
 	home, err := os.UserHomeDir()
 	if err != nil {

@@ -14,6 +14,7 @@ type instanceResolver func() (*client.Instance, error)
 
 var statusPollInterval = 500 * time.Millisecond
 
+// statusCmd는 heartbeat 파일만 읽어 현재 Unity 상태를 출력한다. /command는 보내지 않는다.
 func statusCmd(project string, ignoreVersionMismatch bool) error {
 	instances, err := statusInstances(project)
 	if err != nil {
@@ -34,6 +35,7 @@ func statusCmd(project string, ignoreVersionMismatch bool) error {
 	return nil
 }
 
+// statusInstances는 스캔한 인스턴스 중 timestamp가 있는 것만 남긴다. project가 있으면 그 경로만.
 func statusInstances(project string) ([]client.Instance, error) {
 	instances, err := client.ScanInstances()
 	if err != nil {
@@ -60,6 +62,7 @@ func statusInstances(project string) ([]client.Instance, error) {
 	return result, nil
 }
 
+// normalizeStatusProjectPath는 status용 경로 비교다. DiscoverInstance와 같이 슬래시/대소문자를 맞춘다.
 func normalizeStatusProjectPath(path string) string {
 	normalized := strings.TrimRight(strings.ReplaceAll(path, "\\", "/"), "/")
 	if runtime.GOOS == "windows" {
@@ -68,6 +71,7 @@ func normalizeStatusProjectPath(path string) string {
 	return normalized
 }
 
+// printStatus는 heartbeat가 3초 이상 멈추면 "not responding", 아니면 state/경로/버전을 찍는다.
 func printStatus(status *client.Instance) {
 	age := time.Since(time.UnixMilli(status.Timestamp))
 	if age > 3*time.Second {
@@ -82,6 +86,7 @@ func printStatus(status *client.Instance) {
 	fmt.Printf("  PID:     %d\n", status.PID)
 }
 
+// connectorVersionLabel은 빈 버전을 unknown으로 보여 준다.
 func connectorVersionLabel(version string) string {
 	if strings.TrimSpace(version) == "" {
 		return "unknown"
@@ -89,6 +94,8 @@ func connectorVersionLabel(version string) string {
 	return version
 }
 
+// checkConnectorVersion은 CLI와 커넥터 패키지 버전이 같은지 본다.
+// 개발 빌드(dev)와 --ignore-version-mismatch는 통과시킨다.
 func checkConnectorVersion(inst *client.Instance, cliVersion string, ignoreMismatch bool) error {
 	if normalizeVersion(cliVersion) == "dev" {
 		return nil
@@ -110,6 +117,7 @@ func checkConnectorVersion(inst *client.Instance, cliVersion string, ignoreMisma
 	return nil
 }
 
+// normalizeVersion은 앞의 v/V와 공백을 빼 비교한다. v0.3.22와 0.3.22를 같게 본다.
 func normalizeVersion(version string) string {
 	version = strings.TrimSpace(version)
 	version = strings.TrimPrefix(version, "v")
@@ -117,8 +125,8 @@ func normalizeVersion(version string) string {
 	return version
 }
 
-// waitForReady polls indefinitely until the heartbeat state becomes "ready".
-// Returns true if compilation had errors.
+// waitForReady는 heartbeat state가 ready가 될 때까지 폴링한다.
+// 컴파일 에러가 있으면 true. 5분이 지나면 타임아웃으로 true.
 func waitForReady(resolve instanceResolver) bool {
 	fmt.Fprintf(os.Stderr, "Waiting for compilation...\n")
 

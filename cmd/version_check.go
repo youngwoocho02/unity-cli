@@ -18,6 +18,7 @@ type versionCache struct {
 	Outdated  bool   `json:"outdated,omitempty"`
 }
 
+// cacheFilePath는 주기적 업데이트 알림용 JSON 경로다. ~/.unity-cli/version-check.json
 func cacheFilePath() string {
 	home, err := os.UserHomeDir()
 	if err != nil {
@@ -26,6 +27,7 @@ func cacheFilePath() string {
 	return filepath.Join(home, ".unity-cli", "version-check.json")
 }
 
+// loadCache는 마지막 검사 시각과 알려 둔 latest 태그를 읽는다.
 func loadCache(path string) (*versionCache, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -38,6 +40,7 @@ func loadCache(path string) (*versionCache, error) {
 	return &c, nil
 }
 
+// saveCache는 네트워크 실패여도 검사 시각을 남겨 바로 다시 치지 않게 한다.
 func saveCache(path string, c *versionCache) {
 	dir := filepath.Dir(path)
 	_ = os.MkdirAll(dir, 0755)
@@ -109,6 +112,7 @@ func printUpdateNotice() {
 	}
 }
 
+// printNotice는 stderr에 업데이트 한 줄을 찍는다. 명령 출력(stdout)과 섞이지 않게 한다.
 func printNotice(current, latest string) {
 	fmt.Fprintf(os.Stderr, "\nUpdate available: %s → %s\nRun \"unity-cli update\" to upgrade.\n", current, latest)
 }
