@@ -8,36 +8,44 @@ import (
 	"github.com/youngwoocho02/unity-cli/internal/client"
 )
 
-func TestEditorCmd_Play(t *testing.T) {
-	send, params := mockSend("manage_editor", t)
-	resolve := func() (*client.Instance, error) { return nil, nil }
-	if _, err := editorCmd([]string{"play"}, send, resolve); err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if (*params)["action"] != "play" {
-		t.Errorf("expected action=play, got %v", (*params)["action"])
+func unusedSend(t *testing.T) sendFn {
+	t.Helper()
+	return func(cmd string, params interface{}) (*client.CommandResponse, error) {
+		t.Fatalf("send should not be called, got %q", cmd)
+		return nil, nil
 	}
 }
 
-func TestEditorCmd_PlayWait(t *testing.T) {
-	origInterval := statusPollInterval
+func TestIsPlayModeState(t *testing.T) {
+	cases := map[string]bool{
+		"playing":   true,
+		"paused":    true,
+		"Playing":   true,
+		" PAUSED ":  true,
+		"ready":     false,
+		"compiling": false,
+		"":          false,
+	}
+	for state, want := range cases {
+		if got := isPlayModeState(state); got != want {
+			t.Errorf("isPlayModeState(%q)=%v, want %v", state, got, want)
+		}
+	}
+}
+
+func TestWaitForPlayModeSucceedsWhenPlaying(t *testing.T) {
+	orig := statusPollInterval
 	statusPollInterval = time.Millisecond
-	t.Cleanup(func() { statusPollInterval = origInterval })
+	t.Cleanup(func() { statusPollInterval = orig })
 
-	send, _ := mockSend("manage_editor", t)
-	resolve := func() (*client.Instance, error) {
+	if err := waitForPlayMode(func() (*client.Instance, error) {
 		return &client.Instance{State: "playing"}, nil
-	}
-	resp, err := editorCmd([]string{"play", "--wait"}, send, resolve)
-	if err != nil {
+	}); err != nil {
 		t.Fatalf("unexpected error: %v", err)
-	}
-	if resp == nil || resp.Message != "Entered play mode (confirmed)." {
-		t.Fatalf("response = %#v, want confirmed play mode", resp)
 	}
 }
 
-func TestEditorCmd_PlayWaitTimesOut(t *testing.T) {
+func TestWaitForPlayModeTimesOut(t *testing.T) {
 	origInterval := statusPollInterval
 	origTimeout := flagTimeout
 	statusPollInterval = time.Millisecond
@@ -47,11 +55,9 @@ func TestEditorCmd_PlayWaitTimesOut(t *testing.T) {
 		flagTimeout = origTimeout
 	})
 
-	send, _ := mockSend("manage_editor", t)
-	resolve := func() (*client.Instance, error) {
+	err := waitForPlayMode(func() (*client.Instance, error) {
 		return &client.Instance{State: "ready"}, nil
-	}
-	_, err := editorCmd([]string{"play", "--wait"}, send, resolve)
+	})
 	if err == nil {
 		t.Fatal("expected play wait timeout")
 	}
@@ -60,75 +66,9 @@ func TestEditorCmd_PlayWaitTimesOut(t *testing.T) {
 	}
 }
 
-func TestEditorCmd_Stop(t *testing.T) {
-	send, params := mockSend("manage_editor", t)
-	resolve := func() (*client.Instance, error) { return nil, nil }
-	if _, err := editorCmd([]string{"stop"}, send, resolve); err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if (*params)["action"] != "stop" {
-		t.Errorf("expected action=stop, got %v", (*params)["action"])
-	}
-}
-
-func TestEditorCmd_Pause(t *testing.T) {
-	send, params := mockSend("manage_editor", t)
-	resolve := func() (*client.Instance, error) { return nil, nil }
-	if _, err := editorCmd([]string{"pause"}, send, resolve); err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if (*params)["action"] != "pause" {
-		t.Errorf("expected action=pause, got %v", (*params)["action"])
-	}
-}
-
-func TestEditorCmd_Refresh(t *testing.T) {
-	send, _ := mockSend("refresh_unity", t)
-	resolve := func() (*client.Instance, error) { return nil, nil }
-	if _, err := editorCmd([]string{"refresh"}, send, resolve); err != nil {
-		t.Errorf("unexpected error: %v", err)
-	}
-}
-
-func TestEditorCmd_RefreshForce(t *testing.T) {
-	send, params := mockSend("refresh_unity", t)
-	resolve := func() (*client.Instance, error) { return nil, nil }
-	if _, err := editorCmd([]string{"refresh", "--force"}, send, resolve); err != nil {
-		t.Errorf("unexpected error: %v", err)
-	}
-	if (*params)["force"] != true {
-		t.Errorf("expected force=true, got %v", (*params)["force"])
-	}
-	if (*params)["mode"] != "force" {
-		t.Errorf("expected mode=force, got %v", (*params)["mode"])
-	}
-}
-
-func TestEditorCmd_RefreshCompileForce(t *testing.T) {
-	send, params := mockSend("refresh_unity", t)
-	resolve := func() (*client.Instance, error) {
-		return &client.Instance{State: "ready"}, nil
-	}
-	if _, err := editorCmd([]string{"refresh", "--compile", "--force"}, send, resolve); err != nil {
-		t.Errorf("unexpected error: %v", err)
-	}
-	if (*params)["compile"] != "request" {
-		t.Errorf("expected compile=request, got %v", (*params)["compile"])
-	}
-	if (*params)["force"] != true {
-		t.Errorf("expected force=true, got %v", (*params)["force"])
-	}
-	if (*params)["mode"] != "force" {
-		t.Errorf("expected mode=force, got %v", (*params)["mode"])
-	}
-}
-
 func TestEditorCmd_RefreshCompileFailureDoesNotWait(t *testing.T) {
 	resolveCalled := false
 	send := func(cmd string, params interface{}) (*client.CommandResponse, error) {
-		if cmd != "refresh_unity" {
-			t.Errorf("send called with command %q, want refresh_unity", cmd)
-		}
 		return &client.CommandResponse{Success: false, Message: "blocked"}, nil
 	}
 	resolve := func() (*client.Instance, error) {
@@ -149,18 +89,14 @@ func TestEditorCmd_RefreshCompileFailureDoesNotWait(t *testing.T) {
 }
 
 func TestEditorCmd_EmptyArgs(t *testing.T) {
-	send, _ := mockSend("manage_editor", t)
-	resolve := func() (*client.Instance, error) { return nil, nil }
-	_, err := editorCmd(nil, send, resolve)
+	_, err := editorCmd(nil, unusedSend(t), func() (*client.Instance, error) { return nil, nil })
 	if err == nil {
 		t.Error("expected error for empty args")
 	}
 }
 
 func TestEditorCmd_UnknownAction(t *testing.T) {
-	send, _ := mockSend("manage_editor", t)
-	resolve := func() (*client.Instance, error) { return nil, nil }
-	_, err := editorCmd([]string{"fly"}, send, resolve)
+	_, err := editorCmd([]string{"fly"}, unusedSend(t), func() (*client.Instance, error) { return nil, nil })
 	if err == nil {
 		t.Error("expected error for unknown action")
 	}

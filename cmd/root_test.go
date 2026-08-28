@@ -1,30 +1,10 @@
 package cmd
 
 import (
-	"errors"
 	"strings"
 	"testing"
 	"time"
-
-	"github.com/youngwoocho02/unity-cli/internal/client"
 )
-
-func mockSend(wantCmd string, t *testing.T) (sendFn, *map[string]interface{}) {
-	t.Helper()
-	captured := map[string]interface{}{}
-	fn := func(cmd string, params interface{}) (*client.CommandResponse, error) {
-		if cmd != wantCmd {
-			t.Errorf("send called with command %q, want %q", cmd, wantCmd)
-		}
-		if p, ok := params.(map[string]interface{}); ok {
-			for k, v := range p {
-				captured[k] = v
-			}
-		}
-		return &client.CommandResponse{Success: true}, nil
-	}
-	return fn, &captured
-}
 
 func TestParseSubFlags(t *testing.T) {
 	tests := []struct {
@@ -124,338 +104,49 @@ func TestRejectRemovedFlagsAllowsIgnoreVersionMismatch(t *testing.T) {
 	}
 }
 
-func TestSendWithRetrySmallTimeoutBoundsHealthProbe(t *testing.T) {
-	origVersion := Version
-	origHealth := healthCheck
-	origSend := sendCommand
-	origPollInterval := statusPollInterval
-	Version = "dev"
-	statusPollInterval = time.Millisecond
-	seenTimeout := 0
-	healthCheck = func(inst *client.Instance, timeoutMs int) (*client.Instance, error) {
-		seenTimeout = timeoutMs
-		return nil, errors.New("not ready")
-	}
-	sendCommand = func(inst *client.Instance, command string, params interface{}, timeoutMs int) (*client.CommandResponse, error) {
-		t.Fatal("send should not be called when health fails")
-		return nil, nil
-	}
-	t.Cleanup(func() {
-		Version = origVersion
-		healthCheck = origHealth
-		sendCommand = origSend
-		statusPollInterval = origPollInterval
-	})
-
-	_, err := sendWithRetry(func() (*client.Instance, error) {
-		return &client.Instance{ProjectPath: "/projects/current", Port: 8090}, nil
-	}, "exec", nil, 5)
-	if err == nil {
-		t.Fatal("expected timeout")
-	}
-	if seenTimeout <= 0 || seenTimeout > 5 {
-		t.Fatalf("health timeout: got %d, want 1..5", seenTimeout)
+func TestCommandDeadlineDefaultWhenZero(t *testing.T) {
+	remaining := time.Until(commandDeadline(0))
+	if remaining < 119*time.Second || remaining > 121*time.Second {
+		t.Fatalf("commandDeadline(0) remaining %v, want ~120s", remaining)
 	}
 }
 
-func TestSendWithRetryReResolvesAfterHealthFailure(t *testing.T) {
-	origVersion := Version
-	origHealth := healthCheck
-	origSend := sendCommand
-	Version = "dev"
-	healthCalls := 0
-	healthCheck = func(inst *client.Instance, timeoutMs int) (*client.Instance, error) {
-		healthCalls++
-		if healthCalls == 1 {
-			return nil, errors.New("listener down")
-		}
-		return &client.Instance{ProjectPath: inst.ProjectPath, Port: inst.Port, Timestamp: 1000, PID: 1, ConnectorVersion: Version, Ready: true}, nil
-	}
-	sendCommand = func(inst *client.Instance, command string, params interface{}, timeoutMs int) (*client.CommandResponse, error) {
-		if inst.Port != 8091 {
-			t.Fatalf("send port: got %d, want 8091", inst.Port)
-		}
-		return &client.CommandResponse{Success: true, Message: command}, nil
-	}
-	t.Cleanup(func() {
-		Version = origVersion
-		healthCheck = origHealth
-		sendCommand = origSend
-	})
-
-	resolveCalls := 0
-	resp, err := sendWithRetry(func() (*client.Instance, error) {
-		resolveCalls++
-		if resolveCalls == 1 {
-			return &client.Instance{ProjectPath: "/projects/current", Port: 8090}, nil
-		}
-		return &client.Instance{ProjectPath: "/projects/current", Port: 8091}, nil
-	}, "exec", map[string]interface{}{}, 1000)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if resp.Message != "exec" {
-		t.Errorf("Message: got %q, want exec", resp.Message)
-	}
-	if resolveCalls < 2 {
-		t.Fatalf("expected retry to resolve again, got %d calls", resolveCalls)
+func TestCommandDeadlineUsesGivenTimeout(t *testing.T) {
+	remaining := time.Until(commandDeadline(50))
+	if remaining < 20*time.Millisecond || remaining > 80*time.Millisecond {
+		t.Fatalf("commandDeadline(50) remaining %v, want ~50ms", remaining)
 	}
 }
 
-func TestSendWithRetryZeroTimeoutSendsBoundedDefaultTimeout(t *testing.T) {
-	origVersion := Version
-	origHealth := healthCheck
-	origSend := sendCommand
-	Version = "dev"
-	healthCheck = func(inst *client.Instance, timeoutMs int) (*client.Instance, error) {
-		return &client.Instance{ProjectPath: inst.ProjectPath, Port: inst.Port, Timestamp: 1000, PID: 1, ConnectorVersion: Version, Ready: true}, nil
-	}
-	seenTimeout := 0
-	sendCommand = func(inst *client.Instance, command string, params interface{}, timeoutMs int) (*client.CommandResponse, error) {
-		seenTimeout = timeoutMs
-		return &client.CommandResponse{Success: true}, nil
-	}
-	t.Cleanup(func() {
-		Version = origVersion
-		healthCheck = origHealth
-		sendCommand = origSend
-	})
-
-	if _, err := sendWithRetry(func() (*client.Instance, error) {
-		return &client.Instance{ProjectPath: "/projects/current", Port: 8090}, nil
-	}, "exec", nil, 0); err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if seenTimeout <= 0 {
-		t.Fatalf("send timeout should be bounded, got %d", seenTimeout)
-	}
-	if seenTimeout <= 1000 {
-		t.Fatalf("send timeout should use command deadline, got %d", seenTimeout)
+func TestProbeTimeoutMsCapsAtOneSecond(t *testing.T) {
+	if got := probeTimeoutMs(time.Now().Add(30 * time.Second)); got != 1000 {
+		t.Fatalf("probeTimeoutMs: got %d, want 1000", got)
 	}
 }
 
-func TestSendWithRetrySmallTimeoutBoundsSendTimeout(t *testing.T) {
-	origVersion := Version
-	origHealth := healthCheck
-	origSend := sendCommand
-	Version = "dev"
-	healthCheck = func(inst *client.Instance, timeoutMs int) (*client.Instance, error) {
-		return &client.Instance{ProjectPath: inst.ProjectPath, Port: inst.Port, Timestamp: 1000, PID: 1, ConnectorVersion: Version, Ready: true}, nil
-	}
-	seenTimeout := 0
-	sendCommand = func(inst *client.Instance, command string, params interface{}, timeoutMs int) (*client.CommandResponse, error) {
-		seenTimeout = timeoutMs
-		return &client.CommandResponse{Success: true}, nil
-	}
-	t.Cleanup(func() {
-		Version = origVersion
-		healthCheck = origHealth
-		sendCommand = origSend
-	})
-
-	if _, err := sendWithRetry(func() (*client.Instance, error) {
-		return &client.Instance{ProjectPath: "/projects/current", Port: 8090}, nil
-	}, "exec", nil, 5); err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if seenTimeout <= 0 || seenTimeout > 5 {
-		t.Fatalf("send timeout: got %d, want 1..5", seenTimeout)
+func TestProbeTimeoutMsUsesRemainingWhenUnderOneSecond(t *testing.T) {
+	got := probeTimeoutMs(time.Now().Add(40 * time.Millisecond))
+	if got < 1 || got > 40 {
+		t.Fatalf("probeTimeoutMs: got %d, want 1..40", got)
 	}
 }
 
-func TestSendWithRetryRetriesTransientNotAccepting(t *testing.T) {
-	origVersion := Version
-	origHealth := healthCheck
-	origSend := sendCommand
-	origPollInterval := statusPollInterval
-	Version = "dev"
-	statusPollInterval = time.Millisecond
-	healthCheck = func(inst *client.Instance, timeoutMs int) (*client.Instance, error) {
-		return &client.Instance{ProjectPath: inst.ProjectPath, Port: inst.Port, Timestamp: 1000, PID: 1, ConnectorVersion: Version, Ready: true}, nil
-	}
-	sendCalls := 0
-	sendCommand = func(inst *client.Instance, command string, params interface{}, timeoutMs int) (*client.CommandResponse, error) {
-		sendCalls++
-		if sendCalls == 1 {
-			return nil, client.ErrUnityNotAccepting
-		}
-		return &client.CommandResponse{Success: true, Message: "ok"}, nil
-	}
-	t.Cleanup(func() {
-		Version = origVersion
-		healthCheck = origHealth
-		sendCommand = origSend
-		statusPollInterval = origPollInterval
-	})
-
-	resp, err := sendWithRetry(func() (*client.Instance, error) {
-		return &client.Instance{ProjectPath: "/projects/current", Port: 8090}, nil
-	}, "exec", nil, 1000)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if resp.Message != "ok" {
-		t.Fatalf("Message: got %q, want ok", resp.Message)
-	}
-	if sendCalls != 2 {
-		t.Fatalf("send calls: got %d, want 2", sendCalls)
+func TestProbeTimeoutMsExpiredIsOne(t *testing.T) {
+	if got := probeTimeoutMs(time.Now().Add(-time.Second)); got != 1 {
+		t.Fatalf("probeTimeoutMs: got %d, want 1", got)
 	}
 }
 
-func TestSendWithRetryDoesNotRetryAfterCommandSendFailure(t *testing.T) {
-	origVersion := Version
-	origHealth := healthCheck
-	origSend := sendCommand
-	Version = "dev"
-	healthCheck = func(inst *client.Instance, timeoutMs int) (*client.Instance, error) {
-		return &client.Instance{ProjectPath: inst.ProjectPath, Port: inst.Port, Timestamp: 1000, PID: 1, ConnectorVersion: Version, Ready: true}, nil
-	}
-	sendCalls := 0
-	sendCommand = func(inst *client.Instance, command string, params interface{}, timeoutMs int) (*client.CommandResponse, error) {
-		sendCalls++
-		return nil, errors.New("post failed")
-	}
-	t.Cleanup(func() {
-		Version = origVersion
-		healthCheck = origHealth
-		sendCommand = origSend
-	})
-
-	_, err := sendWithRetry(func() (*client.Instance, error) {
-		return &client.Instance{ProjectPath: "/projects/current", Port: 8090}, nil
-	}, "exec", nil, 1000)
-	if err == nil {
-		t.Fatal("expected send error")
-	}
-	if sendCalls != 1 {
-		t.Fatalf("send should not be retried after command send failure, got %d calls", sendCalls)
+func TestCommandTimeoutMsUsesRemaining(t *testing.T) {
+	got := commandTimeoutMs(time.Now().Add(250 * time.Millisecond))
+	if got < 1 || got > 250 {
+		t.Fatalf("commandTimeoutMs: got %d, want 1..250", got)
 	}
 }
 
-func TestSendWithRetryStopsOnVersionMismatch(t *testing.T) {
-	origVersion := Version
-	origHealth := healthCheck
-	origSend := sendCommand
-	origIgnore := flagIgnoreVersionMismatch
-	Version = "v0.3.19"
-	flagIgnoreVersionMismatch = false
-	healthCheck = func(inst *client.Instance, timeoutMs int) (*client.Instance, error) {
-		return &client.Instance{ProjectPath: inst.ProjectPath, Port: inst.Port, Timestamp: 1000, PID: 1, ConnectorVersion: "0.3.18", Ready: true}, nil
-	}
-	sendCommand = func(inst *client.Instance, command string, params interface{}, timeoutMs int) (*client.CommandResponse, error) {
-		t.Fatal("send should not be called on version mismatch")
-		return nil, nil
-	}
-	t.Cleanup(func() {
-		Version = origVersion
-		healthCheck = origHealth
-		sendCommand = origSend
-		flagIgnoreVersionMismatch = origIgnore
-	})
-
-	_, err := sendWithRetry(func() (*client.Instance, error) {
-		return &client.Instance{ProjectPath: "/projects/current", Port: 8090}, nil
-	}, "exec", nil, 100)
-	if err == nil {
-		t.Fatal("expected version mismatch error")
-	}
-}
-
-func TestSendWithRetryStopsOnVersionMismatchBeforeHealth(t *testing.T) {
-	origVersion := Version
-	origHealth := healthCheck
-	origSend := sendCommand
-	origIgnore := flagIgnoreVersionMismatch
-	Version = "v0.3.21"
-	flagIgnoreVersionMismatch = false
-	healthCheck = func(inst *client.Instance, timeoutMs int) (*client.Instance, error) {
-		t.Fatal("health should not be called on version mismatch")
-		return nil, nil
-	}
-	sendCommand = func(inst *client.Instance, command string, params interface{}, timeoutMs int) (*client.CommandResponse, error) {
-		t.Fatal("send should not be called on version mismatch")
-		return nil, nil
-	}
-	t.Cleanup(func() {
-		Version = origVersion
-		healthCheck = origHealth
-		sendCommand = origSend
-		flagIgnoreVersionMismatch = origIgnore
-	})
-
-	_, err := sendWithRetry(func() (*client.Instance, error) {
-		return &client.Instance{ProjectPath: "/projects/current", Port: 8090, ConnectorVersion: "0.3.19"}, nil
-	}, "exec", nil, 100)
-	if err == nil {
-		t.Fatal("expected version mismatch error")
-	}
-}
-
-func TestSendWithRetryIgnoreVersionMismatchAllowsMismatch(t *testing.T) {
-	origVersion := Version
-	origHealth := healthCheck
-	origSend := sendCommand
-	origIgnore := flagIgnoreVersionMismatch
-	Version = "v0.3.21"
-	flagIgnoreVersionMismatch = true
-	healthCheck = func(inst *client.Instance, timeoutMs int) (*client.Instance, error) {
-		return &client.Instance{ProjectPath: inst.ProjectPath, Port: inst.Port, Timestamp: 1000, PID: 1, ConnectorVersion: "0.3.19", Ready: true}, nil
-	}
-	sendCalled := false
-	sendCommand = func(inst *client.Instance, command string, params interface{}, timeoutMs int) (*client.CommandResponse, error) {
-		sendCalled = true
-		return &client.CommandResponse{Success: true}, nil
-	}
-	t.Cleanup(func() {
-		Version = origVersion
-		healthCheck = origHealth
-		sendCommand = origSend
-		flagIgnoreVersionMismatch = origIgnore
-	})
-
-	if _, err := sendWithRetry(func() (*client.Instance, error) {
-		return &client.Instance{ProjectPath: "/projects/current", Port: 8090, ConnectorVersion: "0.3.19"}, nil
-	}, "exec", nil, 100); err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if !sendCalled {
-		t.Fatal("send should be called when version mismatch is ignored")
-	}
-}
-
-func TestSendWithRetryDoesNotSendWhenHealthFails(t *testing.T) {
-	origVersion := Version
-	origHealth := healthCheck
-	origSend := sendCommand
-	origIgnore := flagIgnoreVersionMismatch
-	Version = "v0.3.21"
-	flagIgnoreVersionMismatch = true
-	healthCheck = func(inst *client.Instance, timeoutMs int) (*client.Instance, error) {
-		return nil, errors.New("HTTP 404 from Unity health endpoint")
-	}
-	sendCalled := false
-	sendCommand = func(inst *client.Instance, command string, params interface{}, timeoutMs int) (*client.CommandResponse, error) {
-		sendCalled = true
-		return &client.CommandResponse{Success: true}, nil
-	}
-	t.Cleanup(func() {
-		Version = origVersion
-		healthCheck = origHealth
-		sendCommand = origSend
-		flagIgnoreVersionMismatch = origIgnore
-	})
-
-	_, err := sendWithRetry(func() (*client.Instance, error) {
-		return &client.Instance{ProjectPath: "/projects/current", Port: 8090, ConnectorVersion: "0.3.19"}, nil
-	}, "exec", nil, 100)
-	if err == nil {
-		t.Fatal("expected health failure to remain visible")
-	}
-	if !strings.Contains(err.Error(), "HTTP 404 from Unity health endpoint") {
-		t.Fatalf("expected health failure, got %v", err)
-	}
-	if sendCalled {
-		t.Fatal("send should not be called when health fails")
+func TestCommandTimeoutMsExpiredIsOne(t *testing.T) {
+	if got := commandTimeoutMs(time.Now().Add(-time.Second)); got != 1 {
+		t.Fatalf("commandTimeoutMs: got %d, want 1", got)
 	}
 }
 

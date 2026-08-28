@@ -216,3 +216,27 @@ func TestCheckConnectorVersion_IgnoreMismatchAllowsMissingConnectorVersion(t *te
 		t.Fatalf("unexpected error: %v", err)
 	}
 }
+
+func TestWaitForReadyReturnsFalseWhenReady(t *testing.T) {
+	orig := statusPollInterval
+	statusPollInterval = time.Millisecond
+	t.Cleanup(func() { statusPollInterval = orig })
+
+	if waitForReady(func() (*client.Instance, error) {
+		return &client.Instance{State: "ready"}, nil
+	}) {
+		t.Fatal("expected no compile errors")
+	}
+}
+
+func TestWaitForReadyReturnsCompileErrors(t *testing.T) {
+	orig := statusPollInterval
+	statusPollInterval = time.Millisecond
+	t.Cleanup(func() { statusPollInterval = orig })
+
+	if !waitForReady(func() (*client.Instance, error) {
+		return &client.Instance{State: "ready", CompileErrors: true}, nil
+	}) {
+		t.Fatal("expected compile errors")
+	}
+}
