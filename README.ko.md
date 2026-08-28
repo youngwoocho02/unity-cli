@@ -279,16 +279,18 @@ unity-cli profiler hierarchy --from 100 --to 200
 unity-cli profiler hierarchy --min 0.5 --sort self --max 10
 
 # 프로파일러 녹화 켜기/끄기
+# disable은 Profiler 창 Record + profileEditor + ProfilerDriver.enabled 를 모두 끈다
 unity-cli profiler enable
 unity-cli profiler disable
 
-# 프로파일러 상태 확인
+# 프로파일러 상태 확인 (enabled, profileEditor, windowIsSetToRecord, frame range)
 unity-cli profiler status
 
 # 캡쳐된 프레임 초기화
 unity-cli profiler clear
 ```
 
+> **녹화 OFF:** `ProfilerDriver.enabled = false`만으로는 부족하다. Profiler 창 Record 버튼(`IsSetToRecord`)이나 `ProfilerDriver.profileEditor`가 켜져 있으면 Edit Mode에서 계속 녹화된다. `profiler disable`은 세 층을 모두 꺼야 한다.
 ### 테스트 실행
 
 Unity Test Framework를 통해 EditMode/PlayMode 테스트를 실행합니다.

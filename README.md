@@ -279,16 +279,18 @@ unity-cli profiler hierarchy --from 100 --to 200
 unity-cli profiler hierarchy --min 0.5 --sort self --max 10
 
 # Enable/disable profiler recording
+# disable clears Profiler window Record + profileEditor + ProfilerDriver.enabled
 unity-cli profiler enable
 unity-cli profiler disable
 
-# Show profiler state
+# Show profiler state (enabled, profileEditor, windowIsSetToRecord, frame range)
 unity-cli profiler status
 
 # Clear captured frames
 unity-cli profiler clear
 ```
 
+> **Recording OFF:** `ProfilerDriver.enabled = false` alone is not enough. Edit Mode can keep capturing while the Profiler window Record button (`IsSetToRecord`) or `ProfilerDriver.profileEditor` stays on. `profiler disable` must clear all three.
 ### Run Tests
 
 Run EditMode and PlayMode tests via the Unity Test Framework.

@@ -1,7 +1,9 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Reflection;
 using Newtonsoft.Json.Linq;
+using UnityEditor;
 using UnityEditor.Profiling;
 using UnityEditorInternal;
 using UnityEngine;
@@ -62,20 +64,45 @@ namespace UnityCliConnector.Tools
             {
                 case "hierarchy": return Hierarchy(p);
                 case "enable":
+                    // ProfilerDriver.enabled alone does not arm the Profiler window Record button.
                     UnityEngine.Profiling.Profiler.enabled = true;
                     ProfilerDriver.enabled = true;
+                    SetProfilerWindowRecording(true);
                     return new SuccessResponse("Profiler enabled.");
                 case "disable":
+                    // Must clear three layers or Edit Mode keeps recording:
+                    // 1) ProfilerWindow Record button (IsSetToRecord)
+                    // 2) ProfilerDriver.profileEditor (Edit Mode capture loop)
+                    // 3) ProfilerDriver.enabled / Profiler.enabled
+                    SetProfilerWindowRecording(false);
+                    ProfilerDriver.profileEditor = false;
                     ProfilerDriver.enabled = false;
                     UnityEngine.Profiling.Profiler.enabled = false;
                     return new SuccessResponse("Profiler disabled.");
                 case "status":
                     int first = ProfilerDriver.firstFrameIndex, last = ProfilerDriver.lastFrameIndex;
+                    GetProfilerWindowRecordingState(out var windowIsRecording, out var windowIsSetToRecord);
+                    int prefsFrameCount = -1;
+                    string defaultTargetMode = null;
+                    try
+                    {
+                        var prefs = Type.GetType("UnityEditor.Profiling.ProfilerUserSettings,UnityEditor.CoreModule");
+                        var flags = BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static;
+                        prefsFrameCount = (int)(prefs?.GetProperty("frameCount", flags)?.GetValue(null) ?? -1);
+                        defaultTargetMode = prefs?.GetProperty("defaultTargetMode", flags)?.GetValue(null)?.ToString();
+                    }
+                    catch { /* optional enrichment */ }
+
                     return new SuccessResponse("Profiler status", new
                     {
                         enabled = ProfilerDriver.enabled,
+                        profileEditor = ProfilerDriver.profileEditor,
+                        windowIsRecording,
+                        windowIsSetToRecord,
                         firstFrame = first, lastFrame = last,
                         frameCount = last >= first ? last - first + 1 : 0,
+                        maxFrameHistory = prefsFrameCount,
+                        defaultTargetMode,
                         isPlaying = Application.isPlaying
                     });
                 case "clear":
@@ -84,6 +111,52 @@ namespace UnityCliConnector.Tools
                 default:
                     return new ErrorResponse($"Unknown action: '{action}'. Valid: hierarchy, enable, disable, status, clear.");
             }
+        }
+
+        /// <summary>
+        /// Arms/disarms the Profiler window Record button.
+        /// <see cref="ProfilerDriver.enabled"/> alone leaves IsSetToRecord on, so Edit Mode keeps capturing.
+        /// </summary>
+        static void SetProfilerWindowRecording(bool enabled)
+        {
+            var windows = Resources.FindObjectsOfTypeAll<ProfilerWindow>();
+            if (windows == null || windows.Length == 0)
+                return;
+
+            var method = typeof(ProfilerWindow).GetMethod(
+                "SetRecordingEnabled",
+                BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+            if (method == null)
+                return;
+
+            foreach (var window in windows)
+            {
+                if (window == null)
+                    continue;
+                method.Invoke(window, new object[] { enabled });
+            }
+        }
+
+        static void GetProfilerWindowRecordingState(out bool? isRecording, out bool? isSetToRecord)
+        {
+            isRecording = null;
+            isSetToRecord = null;
+
+            var windows = Resources.FindObjectsOfTypeAll<ProfilerWindow>();
+            if (windows == null || windows.Length == 0)
+                return;
+
+            var window = windows[0];
+            if (window == null)
+                return;
+
+            var flags = BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic;
+            var isRec = typeof(ProfilerWindow).GetMethod("IsRecording", flags);
+            var isSet = typeof(ProfilerWindow).GetMethod("IsSetToRecord", flags);
+            if (isRec != null)
+                isRecording = (bool)isRec.Invoke(window, null);
+            if (isSet != null)
+                isSetToRecord = (bool)isSet.Invoke(window, null);
         }
 
         private static object Hierarchy(ToolParams p)
