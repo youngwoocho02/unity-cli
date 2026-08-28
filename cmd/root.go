@@ -2,7 +2,6 @@ package cmd
 
 import (
 	"encoding/json"
-	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -15,6 +14,7 @@ import (
 	"github.com/youngwoocho02/unity-cli/internal/client"
 )
 
+// Version은 릴리스 빌드에서 -X main.Version로 주입된다. 소스 기본값 dev는 버전 검사를 건너뛴다.
 var Version = "dev"
 
 var (
@@ -23,6 +23,8 @@ var (
 	flagIgnoreVersionMismatch bool
 )
 
+// Execute는 CLI 진입점이다.
+// 전역 플래그를 파싱한 뒤 명령을 고르고, Unity가 받을 수 있을 때까지 기다린 다음 한 번 보내 응답 하나를 출력한다.
 func Execute() error {
 	flag.StringVar(&flagProject, "project", "", "Select Unity instance by project path")
 	flag.IntVar(&flagTimeout, "timeout", 120000, "Request timeout in milliseconds")
@@ -76,6 +78,7 @@ func Execute() error {
 		return statusErr
 	}
 
+	// 어느 Unity에 보낼지 정한다. 이후 폴링도 같은 프로젝트를 다시 찾는다.
 	inst, err := client.DiscoverInstance(flagProject)
 	if err != nil {
 		return err
@@ -90,14 +93,7 @@ func Execute() error {
 		return client.DiscoverInstance(targetProject)
 	}
 
-	alive, err := resolveReadyTimeout(resolve, flagTimeout)
-	if err != nil {
-		return err
-	}
-	if err := checkConnectorVersion(alive, Version, flagIgnoreVersionMismatch); err != nil {
-		return err
-	}
-
+	// 모든 명령은 sendWithRetry를 탄다. Health가 받을 수 있을 때까지 기다린 뒤 POST 한 번.
 	timeout := flagTimeout
 	send := func(command string, params interface{}) (*client.CommandResponse, error) {
 		return sendWithRetry(resolve, command, params, timeout)
@@ -148,44 +144,14 @@ func Execute() error {
 type sendFn func(command string, params interface{}) (*client.CommandResponse, error)
 
 var (
-	resolveReadyTimeout = resolveReady
-	sendCommand         = client.Send
-	healthCheck         = client.Health
+	sendCommand = client.Send
+	healthCheck = client.Health
 )
 
-func resolveReady(resolve instanceResolver, timeoutMs int) (*client.Instance, error) {
-	deadline := commandDeadline(timeoutMs)
-	var lastErr error
-	for {
-		inst, err := resolve()
-		if err != nil {
-			lastErr = err
-			if !sleepUntilNextPoll(deadline) {
-				break
-			}
-			continue
-		}
-		if err := checkConnectorVersion(inst, Version, flagIgnoreVersionMismatch); err != nil {
-			return nil, err
-		}
-		health, err := healthCheck(inst, probeTimeoutMs(deadline))
-		if err == nil {
-			return health, nil
-		}
-		if flagIgnoreVersionMismatch && errors.Is(err, client.ErrHealthEndpointUnavailable) {
-			return inst, nil
-		}
-		lastErr = err
-		if !sleepUntilNextPoll(deadline) {
-			break
-		}
-	}
-	if lastErr != nil {
-		return nil, fmt.Errorf("timed out waiting for Unity listener: %v", lastErr)
-	}
-	return nil, fmt.Errorf("timed out waiting for Unity listener")
-}
-
+// sendWithRetry는 한 명령을 성공할 때까지 반복한다.
+// 1) 인스턴스를 다시 찾고 2) 버전을 확인하고 3) /health로 받을 수 있는지 보고
+// 4) 받을 수 있으면 /command를 한 번 보낸다.
+// 컴파일 중·연결 끊김 같은 일시 오류만 다시 시도한다. 잘못된 명령은 바로 실패한다.
 func sendWithRetry(resolve instanceResolver, command string, params interface{}, timeoutMs int) (*client.CommandResponse, error) {
 	deadline := commandDeadline(timeoutMs)
 	var lastErr error
@@ -203,20 +169,7 @@ func sendWithRetry(resolve instanceResolver, command string, params interface{},
 		}
 		health, err := healthCheck(inst, probeTimeoutMs(deadline))
 		if err != nil {
-			if flagIgnoreVersionMismatch && errors.Is(err, client.ErrHealthEndpointUnavailable) {
-				resp, sendErr := sendCommand(inst, command, params, commandTimeoutMs(deadline))
-				if sendErr == nil {
-					return resp, nil
-				}
-				if client.IsTransientUnityError(sendErr) {
-					lastErr = sendErr
-					if !sleepUntilNextPoll(deadline) {
-						break
-					}
-					continue
-				}
-				return nil, fmt.Errorf("failed sending command to Unity: %v", sendErr)
-			}
+			// 아직 compiling 등이면 보내지 않고 다음 폴링까지 기다린다.
 			lastErr = err
 			if !sleepUntilNextPoll(deadline) {
 				break
@@ -245,6 +198,7 @@ func sendWithRetry(resolve instanceResolver, command string, params interface{},
 	return nil, fmt.Errorf("timed out sending command to Unity")
 }
 
+// commandDeadline은 --timeout(ms)을 절대 시각으로 바꾼다. 0이하면 기본 120초.
 func commandDeadline(timeoutMs int) time.Time {
 	if timeoutMs <= 0 {
 		timeoutMs = 120000
@@ -252,6 +206,7 @@ func commandDeadline(timeoutMs int) time.Time {
 	return time.Now().Add(time.Duration(timeoutMs) * time.Millisecond)
 }
 
+// probeTimeoutMs는 Health 한 번의 HTTP 타임아웃이다. 남은 전체 대기보다 길면 안 되고, 보통 최대 1초.
 func probeTimeoutMs(deadline time.Time) int {
 	remaining := time.Until(deadline)
 	if remaining <= 0 {
@@ -267,6 +222,7 @@ func probeTimeoutMs(deadline time.Time) int {
 	return ms
 }
 
+// commandTimeoutMs는 실제 POST /command에 주는 남은 시간이다.
 func commandTimeoutMs(deadline time.Time) int {
 	remaining := time.Until(deadline)
 	if remaining <= 0 {
@@ -279,6 +235,7 @@ func commandTimeoutMs(deadline time.Time) int {
 	return ms
 }
 
+// sleepUntilNextPoll은 다음 heartbeat 간격만큼 잔다. deadline이 지났으면 false.
 func sleepUntilNextPoll(deadline time.Time) bool {
 	remaining := time.Until(deadline)
 	if remaining <= 0 {
@@ -292,6 +249,7 @@ func sleepUntilNextPoll(deadline time.Time) bool {
 	return time.Now().Before(deadline)
 }
 
+// printResponse는 성공이면 data(또는 message)를 stdout에, 실패면 stderr에 찍는다.
 func printResponse(resp *client.CommandResponse) {
 	if !resp.Success {
 		msg := resp.Message
@@ -367,6 +325,7 @@ func buildParams(args []string, base map[string]interface{}) (map[string]interfa
 		}
 	}
 
+	// --params JSON이 있으면 그걸 기본으로 깔고, 나머지 플래그가 덮어쓴다.
 	if values, ok := flags["params"]; ok && len(values) > 0 {
 		raw := values[len(values)-1]
 		if jsonErr := json.Unmarshal([]byte(raw), &params); jsonErr != nil {
@@ -404,6 +363,7 @@ func buildParams(args []string, base map[string]interface{}) (map[string]interfa
 	return params, nil
 }
 
+// normalizeUsings는 --usings를 쉼표/반복 입력을 합치고 중복을 뺀다.
 func normalizeUsings(values []string) []string {
 	var result []string
 	seen := map[string]bool{}
@@ -436,6 +396,8 @@ var execAsyncPatterns = []struct {
 	{"EditorApplication async callback", regexp.MustCompile(`\bEditorApplication\s*\.\s*(?:update|delayCall)\b`)},
 }
 
+// validateExecAsyncPolicy는 exec 코드에 async/코루틴이 있으면 기본 차단한다.
+// --allow-async가 있을 때만 통과시킨다.
 func validateExecAsyncPolicy(params map[string]interface{}) error {
 	if allowExecAsync(params) {
 		delete(params, "allow-async")
@@ -453,6 +415,7 @@ func validateExecAsyncPolicy(params map[string]interface{}) error {
 	return nil
 }
 
+// allowExecAsync는 --allow-async 플래그가 true인지 본다.
 func allowExecAsync(params map[string]interface{}) bool {
 	v, ok := params["allow-async"]
 	if !ok {
@@ -462,6 +425,7 @@ func allowExecAsync(params map[string]interface{}) bool {
 	return ok && allowed
 }
 
+// execCodeFromParams는 --code 또는 위치 인자에서 실행할 C# 문자열을 꺼낸다.
 func execCodeFromParams(params map[string]interface{}) string {
 	if code, ok := params["code"].(string); ok {
 		return code
@@ -477,6 +441,7 @@ func execCodeFromParams(params map[string]interface{}) string {
 	return ""
 }
 
+// rejectRemovedFlags는 예전에 쓰던 --port를 막아 --project로 유도한다.
 func rejectRemovedFlags(args []string) error {
 	for _, arg := range args {
 		if arg == "--port" || strings.HasPrefix(arg, "--port=") {
@@ -526,6 +491,7 @@ func splitArgs(args []string) (flags, commands []string) {
 	return
 }
 
+// printHelp는 전체 사용법을 stdout에 출력한다.
 func printHelp() {
 	fmt.Print(`unity-cli ` + Version + ` — Control Unity Editor from the command line
 
@@ -620,6 +586,7 @@ Notes:
 `)
 }
 
+// printTopicHelp는 한 명령의 자세한 사용법을 출력한다.
 func printTopicHelp(topic string) {
 	switch topic {
 	case "editor":

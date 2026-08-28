@@ -16,9 +16,7 @@ namespace UnityCliConnector
     /// Lightweight HTTP server on localhost. Receives CLI commands as POST /command,
     /// dispatches via CommandRouter, returns JSON responses.
     /// Uses ConcurrentQueue + EditorApplication.update for main-thread marshaling.
-    /// Rejects new commands immediately when Unity cannot dispatch yet, so the CLI
-    /// can wait and retry instead of holding a dead HTTP request.
-    /// Background editor throttling can still delay an accepted command.
+    /// Returns 503 while Unity is compiling, reloading, or otherwise unable to run commands.
     /// Survives domain reloads via InitializeOnLoad.
     /// </summary>
     [InitializeOnLoad]
@@ -38,8 +36,6 @@ namespace UnityCliConnector
         static double s_LastFailureLogTime;
         static bool s_Stopping;
         static bool s_RestartPending;
-        static int s_Accepted;
-        static int s_Processing;
 
         static readonly ConcurrentQueue<WorkItem> s_Queue = new();
 
@@ -54,6 +50,7 @@ namespace UnityCliConnector
         {
             s_MainContext = SynchronizationContext.Current;
             Start();
+            // 리로드 전에 리스너를 닫고, 리로드 후 다시 연다. 큐는 메인 스레드 update에서 뺀다.
             EditorApplication.quitting += Stop;
             AssemblyReloadEvents.beforeAssemblyReload += StopListener;
             AssemblyReloadEvents.afterAssemblyReload += Start;
@@ -62,9 +59,8 @@ namespace UnityCliConnector
 
         public static int Port => s_Port;
         public static bool IsRunning => s_Listener != null && s_Listener.IsListening;
-        public static bool CanAcceptCommand() =>
-            IsRunning && !s_Stopping && !s_RestartPending && Volatile.Read(ref s_Accepted) == 0 && Heartbeat.IsDispatchableState();
 
+        // 8090부터 10개 포트를 시도한다. 전부 실패하면 heartbeat를 stopped로 두고 1초 뒤 재시도.
         static void Start()
         {
             s_Stopping = false;
@@ -131,6 +127,7 @@ namespace UnityCliConnector
             s_NextStartAttemptTime = 0;
         }
 
+        // 같은 실패 로그를 5초에 한 번만 찍어 콘솔을 채우지 않는다.
         static void LogStartFailure(string message, bool error = false)
         {
             var now = EditorApplication.timeSinceStartup;
@@ -153,7 +150,6 @@ namespace UnityCliConnector
         {
             s_Stopping = true;
             s_RestartPending = false;
-            ReleaseAcceptedCommand();
             ClearRetry();
 
             if (s_Listener == null) return;
@@ -181,6 +177,7 @@ namespace UnityCliConnector
             Debug.Log("[UnityCliConnector] HTTP server stopped");
         }
 
+        // 포커스가 없어도 플레이어 루프/뷰를 깨워 큐가 빨리 빠지게 한다.
         static void ForceEditorUpdate()
         {
             s_MainContext?.Post(_ =>
@@ -194,6 +191,7 @@ namespace UnityCliConnector
 
         static void ProcessQueue()
         {
+            // ListenLoop가 죽으면 여기서 재시작한다. 핸들러 실행과 분리한다.
             if (s_RestartPending)
             {
                 s_RestartPending = false;
@@ -204,19 +202,8 @@ namespace UnityCliConnector
             if (!IsRunning && s_NextStartAttemptTime > 0 && EditorApplication.timeSinceStartup >= s_NextStartAttemptTime)
                 Start();
 
-            if (Volatile.Read(ref s_Processing) != 0)
-                return;
-
-            if (Interlocked.CompareExchange(ref s_Processing, 1, 0) != 0)
-                return;
-
-            if (!s_Queue.TryDequeue(out var item))
-            {
-                Interlocked.Exchange(ref s_Processing, 0);
-                return;
-            }
-
-            ProcessItem(item);
+            while (s_Queue.TryDequeue(out var item))
+                ProcessItem(item);
         }
 
         static async void ProcessItem(WorkItem item)
@@ -230,42 +217,6 @@ namespace UnityCliConnector
             {
                 item.Tcs.TrySetResult(new ErrorResponse(ex.Message));
             }
-            finally
-            {
-                Interlocked.Exchange(ref s_Processing, 0);
-            }
-        }
-
-        static bool TryAcceptCommand(out string reason)
-        {
-            if (!CanAcceptCommand())
-            {
-                reason = Volatile.Read(ref s_Accepted) != 0
-                    ? "unity is busy with another command"
-                    : $"unity is not accepting commands ({Heartbeat.LastState})";
-                return false;
-            }
-
-            if (Interlocked.CompareExchange(ref s_Accepted, 1, 0) != 0)
-            {
-                reason = "unity is busy with another command";
-                return false;
-            }
-
-            if (!IsRunning || s_Stopping || s_RestartPending || !Heartbeat.IsDispatchableState())
-            {
-                ReleaseAcceptedCommand();
-                reason = $"unity is not accepting commands ({Heartbeat.LastState})";
-                return false;
-            }
-
-            reason = null;
-            return true;
-        }
-
-        static void ReleaseAcceptedCommand()
-        {
-            Interlocked.Exchange(ref s_Accepted, 0);
         }
 
         static async Task ListenLoop(HttpListener listener, CancellationTokenSource cts)
@@ -298,6 +249,7 @@ namespace UnityCliConnector
             }
             finally
             {
+                // 정상 Stop이 아니면 리스너가 죽은 것이다. 메인 스레드 틱에서 다시 연다.
                 if (!ct.IsCancellationRequested && !s_Stopping && ReferenceEquals(s_Listener, listener))
                 {
                     try
@@ -316,6 +268,7 @@ namespace UnityCliConnector
             }
         }
 
+        // GET /health는 즉시 스냅샷. POST /command는 받을 수 있을 때만 큐에 넣고 결과를 기다린다.
         static async Task HandleRequest(HttpListenerContext context)
         {
             var request = context.Request;
@@ -355,11 +308,6 @@ namespace UnityCliConnector
                     result = new ErrorResponse($"Expected POST /command, got {request.HttpMethod} {request.Url.AbsolutePath}");
                     response.StatusCode = 400;
                 }
-                else if (!CanAcceptCommand())
-                {
-                    result = new ErrorResponse($"unity is not accepting commands ({Heartbeat.LastState})");
-                    response.StatusCode = 503;
-                }
                 else
                 {
                     using var reader = new StreamReader(request.InputStream, Encoding.UTF8);
@@ -374,29 +322,23 @@ namespace UnityCliConnector
                         result = new ErrorResponse("Missing 'command' field");
                         response.StatusCode = 400;
                     }
-                    else if (!TryAcceptCommand(out var reason))
+                    else if (!Heartbeat.CanRunCommands())
                     {
-                        result = new ErrorResponse(reason);
+                        // CLI는 503을 일시 오류로 보고 Health가 ready가 될 때까지 다시 보낸다.
+                        result = new ErrorResponse($"unity is not accepting commands ({Heartbeat.CurrentState})");
                         response.StatusCode = 503;
                     }
                     else
                     {
-                        try
+                        var tcs = new TaskCompletionSource<object>(TaskCreationOptions.RunContinuationsAsynchronously);
+                        s_Queue.Enqueue(new WorkItem
                         {
-                            var tcs = new TaskCompletionSource<object>(TaskCreationOptions.RunContinuationsAsynchronously);
-                            s_Queue.Enqueue(new WorkItem
-                            {
-                                Command = command,
-                                Parameters = parameters,
-                                Tcs = tcs,
-                            });
-                            ForceEditorUpdate();
-                            result = await tcs.Task;
-                        }
-                        finally
-                        {
-                            ReleaseAcceptedCommand();
-                        }
+                            Command = command,
+                            Parameters = parameters,
+                            Tcs = tcs,
+                        });
+                        ForceEditorUpdate();
+                        result = await tcs.Task;
                     }
                 }
             }

@@ -138,7 +138,7 @@ Unity 커넥터의 동작:
 5. 수신된 명령을 메인 스레드의 해당 핸들러로 라우팅하고
 6. 도메인 리로드(스크립트 재컴파일)에서도 유지됩니다
 
-컴파일이나 리로드 직전에 상태(`compiling`, `reloading`)를 instance 파일에 기록합니다. `/command`는 Unity가 바로 처리할 수 있을 때만 접수하고, 아니면 CLI가 `--timeout`까지 기다렸다가 다시 넣습니다.
+컴파일이나 리로드 직전에 상태(`compiling`, `reloading`)를 instance 파일에 기록합니다. `/command`는 상태가 `ready`, `playing`, `paused`일 때만 접수하고, 아니면 CLI가 `--timeout`까지 기다렸다가 다시 넣습니다.
 
 ## 내장 명령어
 

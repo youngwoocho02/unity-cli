@@ -408,7 +408,7 @@
 
       <div>CLI 진입부</div>
       <div><code>DiscoverInstance</code> 후 그 인스턴스에 바로 명령을 보내는 단순 흐름이었다.</div>
-      <div><code>resolveReady</code>, <code>sendWithRetry</code>, deadline 계산, health probe가 추가되어 명령 전까지 재조회한다.</div>
+      <div><code>sendWithRetry</code>가 health로 접수 가능 상태(<code>ready</code>/<code>playing</code>/<code>paused</code>)를 확인한 뒤 명령을 보낸다.</div>
 
       <div>POST 재시도</div>
       <div>연결 오류를 같은 방식으로 다시 시도할 여지가 있었다.</div>

@@ -293,23 +293,13 @@ func TestHealth_ReturnsNonOKError(t *testing.T) {
 	}
 }
 
-func TestHealth_ReturnsMissingHealthEndpointSentinel(t *testing.T) {
+func TestHealth_ReturnsMissingHealthEndpointError(t *testing.T) {
 	server, port := healthTestServer(t, http.StatusNotFound, `missing`)
 	_ = server
 
 	_, err := Health(&Instance{Port: port}, 1000)
-	if !errors.Is(err, ErrHealthEndpointUnavailable) {
-		t.Fatalf("expected ErrHealthEndpointUnavailable, got %v", err)
-	}
-}
-
-func TestHealth_ReturnsMissingHealthEndpointSentinelForLegacyCommandOnlyEndpoint(t *testing.T) {
-	server, port := healthTestServer(t, http.StatusBadRequest, `{"success":false,"message":"Expected POST /command, got GET /health","data":null}`)
-	_ = server
-
-	_, err := Health(&Instance{Port: port}, 1000)
-	if !errors.Is(err, ErrHealthEndpointUnavailable) {
-		t.Fatalf("expected ErrHealthEndpointUnavailable, got %v", err)
+	if err == nil || !strings.Contains(err.Error(), "HTTP 404") {
+		t.Fatalf("expected HTTP 404 health error, got %v", err)
 	}
 }
 
@@ -340,8 +330,8 @@ func TestHealth_RejectsProjectMismatch(t *testing.T) {
 	}
 }
 
-func TestHealth_RejectsNotDispatchableSnapshot(t *testing.T) {
-	server, port := healthTestServer(t, http.StatusOK, `{"success":true,"message":"ok","data":{"state":"compiling","projectPath":"/projects/current","port":8090,"pid":123,"timestamp":1000,"ready":true,"dispatchable":false}}`)
+func TestHealth_RejectsNonAcceptingState(t *testing.T) {
+	server, port := healthTestServer(t, http.StatusOK, `{"success":true,"message":"ok","data":{"state":"compiling","projectPath":"/projects/current","port":8090,"pid":123,"timestamp":1000,"ready":true}}`)
 	_ = server
 
 	_, err := Health(&Instance{Port: port}, 1000)
@@ -350,8 +340,17 @@ func TestHealth_RejectsNotDispatchableSnapshot(t *testing.T) {
 	}
 }
 
-func TestHealth_AllowsLegacySnapshotWithoutDispatchable(t *testing.T) {
+func TestHealth_AllowsReadyState(t *testing.T) {
 	server, port := healthTestServer(t, http.StatusOK, `{"success":true,"message":"ok","data":{"state":"ready","projectPath":"/projects/current","port":8090,"pid":123,"timestamp":1000,"ready":true}}`)
+	_ = server
+
+	if _, err := Health(&Instance{Port: port}, 1000); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestHealth_AllowsPlayingState(t *testing.T) {
+	server, port := healthTestServer(t, http.StatusOK, `{"success":true,"message":"ok","data":{"state":"playing","projectPath":"/projects/current","port":8090,"pid":123,"timestamp":1000,"ready":true}}`)
 	_ = server
 
 	if _, err := Health(&Instance{Port: port}, 1000); err != nil {

@@ -124,59 +124,10 @@ func TestRejectRemovedFlagsAllowsIgnoreVersionMismatch(t *testing.T) {
 	}
 }
 
-func TestResolveReadyUsesHealthEndpoint(t *testing.T) {
+func TestSendWithRetrySmallTimeoutBoundsHealthProbe(t *testing.T) {
 	origVersion := Version
 	origHealth := healthCheck
-	Version = "dev"
-	healthCalls := 0
-	healthCheck = func(inst *client.Instance, timeoutMs int) (*client.Instance, error) {
-		healthCalls++
-		if inst.Port != 8090 {
-			t.Fatalf("health port: got %d, want 8090", inst.Port)
-		}
-		return &client.Instance{ProjectPath: inst.ProjectPath, Port: inst.Port, Timestamp: 1000, PID: 1, Ready: true}, nil
-	}
-	t.Cleanup(func() {
-		Version = origVersion
-		healthCheck = origHealth
-	})
-
-	got, err := resolveReady(func() (*client.Instance, error) {
-		return &client.Instance{ProjectPath: "/projects/current", Port: 8090}, nil
-	}, 100)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if got.ProjectPath != "/projects/current" {
-		t.Errorf("ProjectPath: got %q, want /projects/current", got.ProjectPath)
-	}
-	if healthCalls != 1 {
-		t.Fatalf("health calls: got %d, want 1", healthCalls)
-	}
-}
-
-func TestResolveReadyZeroTimeoutUsesDefault(t *testing.T) {
-	origVersion := Version
-	origHealth := healthCheck
-	Version = "dev"
-	healthCheck = func(inst *client.Instance, timeoutMs int) (*client.Instance, error) {
-		return &client.Instance{ProjectPath: inst.ProjectPath, Port: inst.Port, Timestamp: 1000, PID: 1, Ready: true}, nil
-	}
-	t.Cleanup(func() {
-		Version = origVersion
-		healthCheck = origHealth
-	})
-
-	if _, err := resolveReady(func() (*client.Instance, error) {
-		return &client.Instance{ProjectPath: "/projects/current", Port: 8090}, nil
-	}, 0); err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-}
-
-func TestResolveReadySmallTimeoutBoundsHealthProbe(t *testing.T) {
-	origVersion := Version
-	origHealth := healthCheck
+	origSend := sendCommand
 	origPollInterval := statusPollInterval
 	Version = "dev"
 	statusPollInterval = time.Millisecond
@@ -185,15 +136,20 @@ func TestResolveReadySmallTimeoutBoundsHealthProbe(t *testing.T) {
 		seenTimeout = timeoutMs
 		return nil, errors.New("not ready")
 	}
+	sendCommand = func(inst *client.Instance, command string, params interface{}, timeoutMs int) (*client.CommandResponse, error) {
+		t.Fatal("send should not be called when health fails")
+		return nil, nil
+	}
 	t.Cleanup(func() {
 		Version = origVersion
 		healthCheck = origHealth
+		sendCommand = origSend
 		statusPollInterval = origPollInterval
 	})
 
-	_, err := resolveReady(func() (*client.Instance, error) {
+	_, err := sendWithRetry(func() (*client.Instance, error) {
 		return &client.Instance{ProjectPath: "/projects/current", Port: 8090}, nil
-	}, 5)
+	}, "exec", nil, 5)
 	if err == nil {
 		t.Fatal("expected timeout")
 	}
@@ -435,82 +391,6 @@ func TestSendWithRetryStopsOnVersionMismatchBeforeHealth(t *testing.T) {
 	}
 }
 
-func TestResolveReadyStopsOnVersionMismatchBeforeHealth(t *testing.T) {
-	origVersion := Version
-	origHealth := healthCheck
-	origIgnore := flagIgnoreVersionMismatch
-	Version = "v0.3.21"
-	flagIgnoreVersionMismatch = false
-	healthCheck = func(inst *client.Instance, timeoutMs int) (*client.Instance, error) {
-		t.Fatal("health should not be called on version mismatch")
-		return nil, nil
-	}
-	t.Cleanup(func() {
-		Version = origVersion
-		healthCheck = origHealth
-		flagIgnoreVersionMismatch = origIgnore
-	})
-
-	_, err := resolveReady(func() (*client.Instance, error) {
-		return &client.Instance{ProjectPath: "/projects/current", Port: 8090, ConnectorVersion: "0.3.19"}, nil
-	}, 100)
-	if err == nil {
-		t.Fatal("expected version mismatch error")
-	}
-}
-
-func TestResolveReadyIgnoreVersionMismatchAllowsMissingHealthEndpoint(t *testing.T) {
-	origVersion := Version
-	origHealth := healthCheck
-	origIgnore := flagIgnoreVersionMismatch
-	Version = "v0.3.21"
-	flagIgnoreVersionMismatch = true
-	healthCheck = func(inst *client.Instance, timeoutMs int) (*client.Instance, error) {
-		return nil, client.ErrHealthEndpointUnavailable
-	}
-	t.Cleanup(func() {
-		Version = origVersion
-		healthCheck = origHealth
-		flagIgnoreVersionMismatch = origIgnore
-	})
-
-	got, err := resolveReady(func() (*client.Instance, error) {
-		return &client.Instance{ProjectPath: "/projects/current", Port: 8090, ConnectorVersion: "0.3.19"}, nil
-	}, 100)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if got.ProjectPath != "/projects/current" {
-		t.Errorf("ProjectPath: got %q, want /projects/current", got.ProjectPath)
-	}
-}
-
-func TestResolveReadyIgnoreVersionMismatchDoesNotHideHealthConnectionFailure(t *testing.T) {
-	origVersion := Version
-	origHealth := healthCheck
-	origIgnore := flagIgnoreVersionMismatch
-	Version = "v0.3.21"
-	flagIgnoreVersionMismatch = true
-	healthCheck = func(inst *client.Instance, timeoutMs int) (*client.Instance, error) {
-		return nil, errors.New("cannot reach Unity health endpoint")
-	}
-	t.Cleanup(func() {
-		Version = origVersion
-		healthCheck = origHealth
-		flagIgnoreVersionMismatch = origIgnore
-	})
-
-	_, err := resolveReady(func() (*client.Instance, error) {
-		return &client.Instance{ProjectPath: "/projects/current", Port: 8090, ConnectorVersion: "0.3.19"}, nil
-	}, 100)
-	if err == nil {
-		t.Fatal("expected health connection failure to remain visible")
-	}
-	if !strings.Contains(err.Error(), "cannot reach Unity health endpoint") {
-		t.Fatalf("expected health connection failure, got %v", err)
-	}
-}
-
 func TestSendWithRetryIgnoreVersionMismatchAllowsMismatch(t *testing.T) {
 	origVersion := Version
 	origHealth := healthCheck
@@ -543,7 +423,7 @@ func TestSendWithRetryIgnoreVersionMismatchAllowsMismatch(t *testing.T) {
 	}
 }
 
-func TestSendWithRetryIgnoreVersionMismatchSendsWhenHealthEndpointMissing(t *testing.T) {
+func TestSendWithRetryDoesNotSendWhenHealthFails(t *testing.T) {
 	origVersion := Version
 	origHealth := healthCheck
 	origSend := sendCommand
@@ -551,42 +431,7 @@ func TestSendWithRetryIgnoreVersionMismatchSendsWhenHealthEndpointMissing(t *tes
 	Version = "v0.3.21"
 	flagIgnoreVersionMismatch = true
 	healthCheck = func(inst *client.Instance, timeoutMs int) (*client.Instance, error) {
-		return nil, client.ErrHealthEndpointUnavailable
-	}
-	sendCalled := false
-	sendCommand = func(inst *client.Instance, command string, params interface{}, timeoutMs int) (*client.CommandResponse, error) {
-		sendCalled = true
-		if inst.ConnectorVersion != "0.3.19" {
-			t.Fatalf("send should use discovered old connector instance, got %q", inst.ConnectorVersion)
-		}
-		return &client.CommandResponse{Success: true}, nil
-	}
-	t.Cleanup(func() {
-		Version = origVersion
-		healthCheck = origHealth
-		sendCommand = origSend
-		flagIgnoreVersionMismatch = origIgnore
-	})
-
-	if _, err := sendWithRetry(func() (*client.Instance, error) {
-		return &client.Instance{ProjectPath: "/projects/current", Port: 8090, ConnectorVersion: "0.3.19"}, nil
-	}, "exec", nil, 100); err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if !sendCalled {
-		t.Fatal("send should be called when health endpoint is missing and mismatch is ignored")
-	}
-}
-
-func TestSendWithRetryIgnoreVersionMismatchDoesNotSendWhenHealthConnectionFails(t *testing.T) {
-	origVersion := Version
-	origHealth := healthCheck
-	origSend := sendCommand
-	origIgnore := flagIgnoreVersionMismatch
-	Version = "v0.3.21"
-	flagIgnoreVersionMismatch = true
-	healthCheck = func(inst *client.Instance, timeoutMs int) (*client.Instance, error) {
-		return nil, errors.New("cannot reach Unity health endpoint")
+		return nil, errors.New("HTTP 404 from Unity health endpoint")
 	}
 	sendCalled := false
 	sendCommand = func(inst *client.Instance, command string, params interface{}, timeoutMs int) (*client.CommandResponse, error) {
@@ -604,13 +449,13 @@ func TestSendWithRetryIgnoreVersionMismatchDoesNotSendWhenHealthConnectionFails(
 		return &client.Instance{ProjectPath: "/projects/current", Port: 8090, ConnectorVersion: "0.3.19"}, nil
 	}, "exec", nil, 100)
 	if err == nil {
-		t.Fatal("expected health connection failure to remain visible")
+		t.Fatal("expected health failure to remain visible")
 	}
-	if !strings.Contains(err.Error(), "cannot reach Unity health endpoint") {
-		t.Fatalf("expected health connection failure, got %v", err)
+	if !strings.Contains(err.Error(), "HTTP 404 from Unity health endpoint") {
+		t.Fatalf("expected health failure, got %v", err)
 	}
 	if sendCalled {
-		t.Fatal("send should not be called when health connection fails")
+		t.Fatal("send should not be called when health fails")
 	}
 }
 

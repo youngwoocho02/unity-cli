@@ -82,17 +82,6 @@ namespace UnityCliConnector.Tools
                 case "status":
                     int first = ProfilerDriver.firstFrameIndex, last = ProfilerDriver.lastFrameIndex;
                     GetProfilerWindowRecordingState(out var windowIsRecording, out var windowIsSetToRecord);
-                    int prefsFrameCount = -1;
-                    string defaultTargetMode = null;
-                    try
-                    {
-                        var prefs = Type.GetType("UnityEditor.Profiling.ProfilerUserSettings,UnityEditor.CoreModule");
-                        var flags = BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static;
-                        prefsFrameCount = (int)(prefs?.GetProperty("frameCount", flags)?.GetValue(null) ?? -1);
-                        defaultTargetMode = prefs?.GetProperty("defaultTargetMode", flags)?.GetValue(null)?.ToString();
-                    }
-                    catch { /* optional enrichment */ }
-
                     return new SuccessResponse("Profiler status", new
                     {
                         enabled = ProfilerDriver.enabled,
@@ -101,8 +90,6 @@ namespace UnityCliConnector.Tools
                         windowIsSetToRecord,
                         firstFrame = first, lastFrame = last,
                         frameCount = last >= first ? last - first + 1 : 0,
-                        maxFrameHistory = prefsFrameCount,
-                        defaultTargetMode,
                         isPlaying = Application.isPlaying
                     });
                 case "clear":

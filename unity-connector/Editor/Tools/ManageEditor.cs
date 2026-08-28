@@ -1,26 +1,21 @@
 using System;
 using System.Linq;
-using System.Threading.Tasks;
 using Newtonsoft.Json.Linq;
 using UnityEditor;
 using UnityEditorInternal;
 
 namespace UnityCliConnector.Tools
 {
-    [UnityCliTool(Description = "Controls Unity editor state. Actions: play, stop, pause, refresh, set_active_tool, add_tag, remove_tag, add_layer, remove_layer.")]
+    [UnityCliTool(Description = "Controls Unity editor state. Actions: play, stop, pause, set_active_tool, add_tag, remove_tag, add_layer, remove_layer.")]
     public static class ManageEditor
     {
         private const int FirstUserLayerIndex = 8;
         private const int TotalLayerCount = 32;
-        private const int PlayModeTimeoutSeconds = 60;
 
         public class Parameters
         {
-            [ToolParameter("Action to perform: play, stop, pause, refresh, set_active_tool, add_tag, remove_tag, add_layer, remove_layer", Required = true)]
+            [ToolParameter("Action to perform: play, stop, pause, set_active_tool, add_tag, remove_tag, add_layer, remove_layer", Required = true)]
             public string Action { get; set; }
-
-            [ToolParameter("Wait for action to complete before responding")]
-            public bool WaitForCompletion { get; set; }
 
             [ToolParameter("Tool name (required for set_active_tool action)")]
             public string ToolName { get; set; }
@@ -32,7 +27,10 @@ namespace UnityCliConnector.Tools
             public string LayerName { get; set; }
         }
 
-        public static async Task<object> HandleCommand(JObject @params)
+        /// <summary>
+        /// play/stop/pause는 즉시 플래그만 바꾼다. play 완료 대기는 CLI heartbeat 폴링이 한다.
+        /// </summary>
+        public static object HandleCommand(JObject @params)
         {
             if (@params == null)
                 return new ErrorResponse("Parameters cannot be null.");
@@ -43,43 +41,27 @@ namespace UnityCliConnector.Tools
                 return new ErrorResponse(actionResult.ErrorMessage);
 
             string action = actionResult.Value.ToLowerInvariant();
-            bool waitForCompletion = p.GetBool("wait_for_completion");
 
             switch (action)
             {
                 case "play":
-                    if (!EditorApplication.isPlaying)
-                    {
-                        EditorApplication.isPlaying = true;
-                        if (waitForCompletion)
-                        {
-                            await WaitForPlayModeStateAsync(PlayModeStateChange.EnteredPlayMode, TimeSpan.FromSeconds(PlayModeTimeoutSeconds));
-                            return new SuccessResponse("Entered play mode (confirmed).");
-                        }
-                        return new SuccessResponse("Entered play mode.");
-                    }
-                    return new SuccessResponse("Already in play mode.");
+                    if (EditorApplication.isPlaying)
+                        return new SuccessResponse("Already in play mode.");
+                    // 실제 play 진입은 비동기. CLI --wait가 heartbeat의 playing을 확인한다.
+                    EditorApplication.isPlaying = true;
+                    return new SuccessResponse("Entered play mode.");
 
                 case "pause":
-                    if (EditorApplication.isPlaying)
-                    {
-                        EditorApplication.isPaused = !EditorApplication.isPaused;
-                        return new SuccessResponse(EditorApplication.isPaused ? "Game paused." : "Game resumed.");
-                    }
-                    return new ErrorResponse("Cannot pause/resume: Not in play mode.");
+                    if (!EditorApplication.isPlaying)
+                        return new ErrorResponse("Cannot pause/resume: Not in play mode.");
+                    EditorApplication.isPaused = !EditorApplication.isPaused;
+                    return new SuccessResponse(EditorApplication.isPaused ? "Game paused." : "Game resumed.");
 
                 case "stop":
-                    if (EditorApplication.isPlaying)
-                    {
-                        EditorApplication.isPlaying = false;
-                        if (waitForCompletion)
-                        {
-                            await WaitForPlayModeStateAsync(PlayModeStateChange.EnteredEditMode, TimeSpan.FromSeconds(PlayModeTimeoutSeconds));
-                            return new SuccessResponse("Exited play mode (confirmed).");
-                        }
-                        return new SuccessResponse("Exited play mode.");
-                    }
-                    return new SuccessResponse("Already stopped (not in play mode).");
+                    if (!EditorApplication.isPlaying)
+                        return new SuccessResponse("Already stopped (not in play mode).");
+                    EditorApplication.isPlaying = false;
+                    return new SuccessResponse("Exited play mode.");
 
                 case "set_active_tool":
                     var toolNameResult = p.GetRequired("tool_name", "'tool_name' parameter required.");
@@ -118,6 +100,9 @@ namespace UnityCliConnector.Tools
             }
         }
 
+        /// <summary>
+        /// 유저 레이어(인덱스 8~31)만 추가/삭제한다. 빌트인 0~7은 건드리지 않는다.
+        /// </summary>
         private static object ManageLayer(string action, ToolParams p)
         {
             var nameResult = p.GetRequired("layer_name", "'layer_name' parameter required.");
@@ -149,51 +134,19 @@ namespace UnityCliConnector.Tools
                 AssetDatabase.SaveAssets();
                 return new SuccessResponse($"Layer '{nameResult.Value}' added to slot {firstEmpty}.");
             }
-            else
-            {
-                for (int i = FirstUserLayerIndex; i < TotalLayerCount; i++)
-                {
-                    var sp = layersProp.GetArrayElementAtIndex(i);
-                    if (sp != null && nameResult.Value.Equals(sp.stringValue, StringComparison.OrdinalIgnoreCase))
-                    {
-                        sp.stringValue = string.Empty;
-                        tagManager.ApplyModifiedProperties();
-                        AssetDatabase.SaveAssets();
-                        return new SuccessResponse($"Layer '{nameResult.Value}' removed from slot {i}.");
-                    }
-                }
-                return new ErrorResponse($"User layer '{nameResult.Value}' not found.");
-            }
-        }
 
-        private static Task WaitForPlayModeStateAsync(PlayModeStateChange targetState, TimeSpan timeout)
-        {
-            var tcs = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
-            var start = DateTime.UtcNow;
-
-            void OnStateChanged(PlayModeStateChange state)
+            for (int i = FirstUserLayerIndex; i < TotalLayerCount; i++)
             {
-                if (state == targetState)
+                var sp = layersProp.GetArrayElementAtIndex(i);
+                if (sp != null && nameResult.Value.Equals(sp.stringValue, StringComparison.OrdinalIgnoreCase))
                 {
-                    EditorApplication.playModeStateChanged -= OnStateChanged;
-                    tcs.TrySetResult(true);
+                    sp.stringValue = string.Empty;
+                    tagManager.ApplyModifiedProperties();
+                    AssetDatabase.SaveAssets();
+                    return new SuccessResponse($"Layer '{nameResult.Value}' removed from slot {i}.");
                 }
             }
-
-            void Tick()
-            {
-                if (tcs.Task.IsCompleted) { EditorApplication.update -= Tick; return; }
-                if ((DateTime.UtcNow - start) > timeout)
-                {
-                    EditorApplication.playModeStateChanged -= OnStateChanged;
-                    EditorApplication.update -= Tick;
-                    tcs.TrySetException(new TimeoutException());
-                }
-            }
-
-            EditorApplication.playModeStateChanged += OnStateChanged;
-            EditorApplication.update += Tick;
-            return tcs.Task;
+            return new ErrorResponse($"User layer '{nameResult.Value}' not found.");
         }
     }
 }

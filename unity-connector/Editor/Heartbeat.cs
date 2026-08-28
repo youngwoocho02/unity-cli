@@ -8,6 +8,11 @@ using UnityEngine;
 
 namespace UnityCliConnector
 {
+    /// <summary>
+    /// ~/.unity-cli/instances/에 0.5초마다 상태를 쓴다.
+    /// CLI는 이 파일로 Unity를 찾고, /health는 마지막 스냅샷을 그대로 돌려준다.
+    /// compiling/reloading은 명령을 받지 않는 상태로 취급한다.
+    /// </summary>
     [InitializeOnLoad]
     public static class Heartbeat
     {
@@ -29,6 +34,7 @@ namespace UnityCliConnector
 
         static Heartbeat()
         {
+            // 에디터 틱마다 쓰고, 종료/리로드/플레이 전환 때 상태를 강제한다.
             EditorApplication.update += Tick;
             EditorApplication.quitting += Cleanup;
             AssemblyReloadEvents.beforeAssemblyReload += OnBeforeAssemblyReload;
@@ -43,6 +49,7 @@ namespace UnityCliConnector
 
         static void OnPlayModeChanged(PlayModeStateChange change)
         {
+            // play 진입 직전은 isPlaying이 아직 false라 GetState()가 ready로 나올 수 있다.
             if (change == PlayModeStateChange.ExitingEditMode)
                 WriteState("entering_playmode");
         }
@@ -71,6 +78,8 @@ namespace UnityCliConnector
             if (now - s_LastWrite < INTERVAL) return;
             s_LastWrite = now;
 
+            // RequestScriptCompilation 직후 isCompiling이 잠깐 false일 수 있다.
+            // 3초 동안은 compiling을 유지해 CLI가 성급히 명령을 보내지 않게 한다.
             if (s_CompileRequestTime > 0)
             {
                 if (now - s_CompileRequestTime < 3.0 && EditorApplication.isCompiling == false)
@@ -85,6 +94,7 @@ namespace UnityCliConnector
             Write();
         }
 
+        // 프로젝트 경로 해시로 파일 이름을 고정한다. 같은 프로젝트는 항상 같은 파일.
         static string GetFilePath()
         {
             if (s_FilePath != null) return s_FilePath;
@@ -96,6 +106,7 @@ namespace UnityCliConnector
             return s_FilePath;
         }
 
+        // tmp에 쓴 뒤 Replace/Move로 교체한다. CLI가 반쯤 쓰인 JSON을 덜 읽게 한다.
         static void Write()
         {
             var state = s_ForcedState ?? GetState();
@@ -136,6 +147,7 @@ namespace UnityCliConnector
             }
             catch
             {
+                // 다른 프로세스가 파일을 잡고 있어도 에디터를 멈추지 않는다.
             }
         }
 
@@ -144,11 +156,14 @@ namespace UnityCliConnector
             return CONNECTOR_VERSION;
         }
 
-        public static string LastState => s_LastState ?? "starting";
+        public static string CurrentState => s_LastState ?? "starting";
 
-        public static bool IsDispatchableState()
+        /// <summary>
+        /// ready / playing / paused 이고 heartbeat 필드가 채워졌을 때만 명령을 받는다.
+        /// </summary>
+        public static bool CanRunCommands()
         {
-            switch (LastState)
+            switch (CurrentState)
             {
                 case "ready":
                 case "playing":
@@ -159,12 +174,15 @@ namespace UnityCliConnector
             }
         }
 
+        /// <summary>
+        /// GET /health 본문. 메인 스레드 디스패치 없이 마지막 Write() 값을 그대로 준다.
+        /// </summary>
         public static object HealthSnapshot()
         {
             var ready = s_LastTimestamp > 0 && !string.IsNullOrEmpty(s_LastProjectPath) && s_LastPid > 0;
             return new
             {
-                state = LastState,
+                state = CurrentState,
                 projectPath = s_LastProjectPath ?? "",
                 port = HttpServer.Port,
                 pid = s_LastPid,
@@ -174,10 +192,10 @@ namespace UnityCliConnector
                 compileErrors = s_LastCompileErrors,
                 listenerRunning = HttpServer.IsRunning,
                 ready,
-                dispatchable = ready && HttpServer.CanAcceptCommand(),
             };
         }
 
+        // Unity API로 현재 상태를 읽는다. 강제 상태(s_ForcedState)가 없을 때만 쓴다.
         static string GetState()
         {
             if (EditorApplication.isCompiling) return "compiling";
@@ -192,6 +210,9 @@ namespace UnityCliConnector
             MarkStopped();
         }
 
+        /// <summary>
+        /// 에디터 종료 또는 리스너 실패 때 stopped를 써서 CLI가 죽은 인스턴스로 보게 한다.
+        /// </summary>
         public static void MarkStopped()
         {
             s_ForcedState = "stopped";

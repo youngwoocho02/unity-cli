@@ -138,7 +138,7 @@ The Unity Connector:
 5. Routes incoming commands to the matching handler on the main thread
 6. Survives domain reloads (script recompilation)
 
-Before compiling or reloading, the Connector records the state (`compiling`, `reloading`) to the instance file. `/command` is accepted only when Unity can dispatch. Otherwise the CLI waits and tries again until `--timeout`.
+Before compiling or reloading, the Connector records the state (`compiling`, `reloading`) to the instance file. `/command` is accepted only when state is `ready`, `playing`, or `paused`. Otherwise the CLI waits and tries again until `--timeout`.
 
 ## Built-in Commands
 

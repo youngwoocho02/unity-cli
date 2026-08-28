@@ -8,8 +8,9 @@ import (
 	"github.com/youngwoocho02/unity-cli/internal/client"
 )
 
-// editorCmd controls Unity play mode and asset database.
-// resolve is needed for waitForReady so compile polling can follow the current project instance.
+// editorCmd는 play/stop/pause/refresh를 커넥터 도구로 보낸다.
+// play --wait는 명령을 보낸 뒤 heartbeat가 playing/paused가 될 때까지 폴링한다.
+// refresh --compile은 refresh_unity 후 waitForReady로 컴파일이 끝날 때까지 기다린다.
 func editorCmd(args []string, send sendFn, resolve instanceResolver) (*client.CommandResponse, error) {
 	if len(args) == 0 {
 		return nil, fmt.Errorf("usage: unity-cli editor <play|stop|pause|refresh>")
@@ -21,10 +22,8 @@ func editorCmd(args []string, send sendFn, resolve instanceResolver) (*client.Co
 	switch action {
 	case "play":
 		_, wait := flags["wait"]
-		resp, err := send("manage_editor", map[string]interface{}{
-			"action":              "play",
-			"wait_for_completion": false,
-		})
+		// play 전환은 커넥터가 바로 리턴한다. --wait면 이쪽에서 heartbeat를 본다.
+		resp, err := send("manage_editor", map[string]interface{}{"action": "play"})
 		if err != nil || !wait {
 			return resp, err
 		}
@@ -56,6 +55,7 @@ func editorCmd(args []string, send sendFn, resolve instanceResolver) (*client.Co
 		}
 		if compile {
 			params["compile"] = "request"
+			// 리프레시만 요청하고, 컴파일 완료는 heartbeat state=ready를 폴링한다.
 			resp, err := send("refresh_unity", params)
 			if err != nil {
 				return nil, err
@@ -77,6 +77,7 @@ func editorCmd(args []string, send sendFn, resolve instanceResolver) (*client.Co
 	}
 }
 
+// waitForPlayMode는 인스턴스 파일의 state가 playing 또는 paused가 될 때까지 기다린다.
 func waitForPlayMode(resolve instanceResolver) error {
 	fmt.Fprintln(os.Stderr, "Waiting for play mode...")
 	deadline := commandDeadline(flagTimeout)
@@ -100,6 +101,7 @@ func waitForPlayMode(resolve instanceResolver) error {
 	}
 }
 
+// isPlayModeState는 play mode에 들어왔는지 본다. paused도 play mode다.
 func isPlayModeState(state string) bool {
 	switch strings.ToLower(strings.TrimSpace(state)) {
 	case "playing", "paused":

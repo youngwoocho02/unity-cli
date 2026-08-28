@@ -17,9 +17,6 @@ func TestEditorCmd_Play(t *testing.T) {
 	if (*params)["action"] != "play" {
 		t.Errorf("expected action=play, got %v", (*params)["action"])
 	}
-	if (*params)["wait_for_completion"] != false {
-		t.Errorf("expected wait_for_completion=false, got %v", (*params)["wait_for_completion"])
-	}
 }
 
 func TestEditorCmd_PlayWait(t *testing.T) {
@@ -27,16 +24,13 @@ func TestEditorCmd_PlayWait(t *testing.T) {
 	statusPollInterval = time.Millisecond
 	t.Cleanup(func() { statusPollInterval = origInterval })
 
-	send, params := mockSend("manage_editor", t)
+	send, _ := mockSend("manage_editor", t)
 	resolve := func() (*client.Instance, error) {
 		return &client.Instance{State: "playing"}, nil
 	}
 	resp, err := editorCmd([]string{"play", "--wait"}, send, resolve)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
-	}
-	if (*params)["wait_for_completion"] != false {
-		t.Errorf("expected wait_for_completion=false, got %v", (*params)["wait_for_completion"])
 	}
 	if resp == nil || resp.Message != "Entered play mode (confirmed)." {
 		t.Fatalf("response = %#v, want confirmed play mode", resp)
