@@ -1,8 +1,8 @@
 # Unity가 켜진 상태에서 현재 소스 CLI로 실제 요청을 보낸다.
-# 플래그 파싱 목 테스트가 아니라, 한 번 보내기 / 겹치는 요청 / 컴파일 대기를 확인한다.
+# 한 번 보내기, 겹치는 요청, play/stop을 확인한다.
 #
-#   pwsh -File scripts/live-test.ps1
-#   pwsh -File scripts/live-test.ps1 -Project C:/WorkSpace/project-maid
+#   powershell -File scripts/live-test.ps1
+#   powershell -File scripts/live-test.ps1 -Project C:/path/to/unity-project
 
 param(
     [string]$Project = "",
