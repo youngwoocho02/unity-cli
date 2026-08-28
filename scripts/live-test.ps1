@@ -1,6 +1,18 @@
-# Unity가 켜진 상태에서 현재 소스 CLI로 실제 요청을 보낸다.
-# 한 번 보내기, 겹치는 요청, 직렬화, 주요 명령, play/pause/stop을 확인한다.
-# 전체 스크립트 재컴파일은 걸지 않는다. 대기는 heartbeat/status를 폴링한다.
+# live-test.ps1
+#
+# Unity Editor가 켜져 있고 Connector가 붙어 있을 때, 방금 빌드한 CLI로
+# 실제 HTTP 명령을 보낸다. go test의 목 send가 아니라 한 번 보내기 계약을 본다.
+#
+# 확인하는 것:
+#   - 한 CLI 호출 = 응답 하나
+#   - 겹치는 요청도 각각 답이 온다 (유실/재전송 없음)
+#   - 메인 스레드가 바쁠 때 다음 요청은 기다렸다가 실행된다
+#   - 주요 명령(list/exec/console/menu/screenshot/profiler/refresh/test/play)
+#
+# 하지 않는 것:
+#   - RequestScriptCompilation 으로 프로젝트 전체를 다시 컴파일시키기
+#   - 짐작한 초만큼 sleep 하고 끝났다고 가정하기
+#   대기는 status/heartbeat를 다시 읽어서 한다. TimeoutMs는 마지막 상한일 뿐이다.
 #
 #   powershell -File scripts/live-test.ps1
 #   powershell -File scripts/live-test.ps1 -Project C:/path/to/unity-project
@@ -12,9 +24,11 @@ param(
 
 $ErrorActionPreference = "Continue"
 $RepoRoot = Split-Path -Parent $PSScriptRoot
+# 빌드 결과와 stdin/stdout 임시 파일. 끝나면 finally에서 지운다.
 $WorkDir = Join-Path $env:TEMP ("unity-cli-live-test-" + [guid]::NewGuid().ToString("N"))
 New-Item -ItemType Directory -Path $WorkDir | Out-Null
 $Cli = Join-Path $WorkDir "unity-cli-live.exe"
+# slow exec가 메인 스레드를 붙잡는 시간. fast가 이보다 짧으면 병렬로 샌 것이다.
 $SlowMs = 400
 
 $script:Fail = 0
@@ -36,12 +50,14 @@ function Fail($detail) {
     Write-Host "FAIL  $detail" -ForegroundColor Red
 }
 
+# Start-Process -Wait 직후 ExitCode가 $null인 Windows 경우가 있다. 그때는 성공(0)으로 본다.
 function Read-CliExit($process) {
     $exit = $process.ExitCode
     if ($null -eq $exit) { return 0 }
     return [int]$exit
 }
 
+# 설치된 unity-cli가 아니라, 방금 빌드한 $Cli를 한 번 실행하고 끝날 때까지 기다린다.
 function Invoke-Cli {
     param(
         [string[]]$CliArgs,
@@ -66,6 +82,7 @@ function Invoke-Cli {
     }
 }
 
+# exec는 코드를 stdin으로 받는다. 셸 이스케이프를 피하려고 임시 파일 redirect를 쓴다.
 function Invoke-CliStdin {
     param(
         [string[]]$CliArgs,
@@ -94,6 +111,8 @@ function Invoke-CliStdin {
     }
 }
 
+# 기다리지 않고 CLI를 띄운다. 겹치는 요청을 같은 순간에 넣기 위한 것.
+# Code가 있으면 exec stdin, 없으면 editor/profiler처럼 인자만 있는 명령.
 function Start-CliJob {
     param(
         [string[]]$CliArgs,
@@ -128,6 +147,7 @@ function Start-CliJob {
     }
 }
 
+# 백그라운드 CLI가 끝날 때까지 프로세스 종료를 기다린다. sleep으로 시간을 짐작하지 않는다.
 function Wait-CliJob($job) {
     if (-not $job.Process.HasExited) {
         $job.Process.WaitForExit()
@@ -144,6 +164,7 @@ function Wait-CliJob($job) {
     }
 }
 
+# heartbeat를 읽는다. /command는 안 보낸다. 출력은 "Unity: ready" 한 줄.
 function Get-UnityState {
     $r = Invoke-Cli -CliArgs @("status")
     $text = "$(if ($r.Stdout) { $r.Stdout } else { '' })`n$(if ($r.Stderr) { $r.Stderr } else { '' })"
@@ -152,6 +173,8 @@ function Get-UnityState {
     return ""
 }
 
+# 원하는 state가 찍힐 때까지 status를 다시 읽는다.
+# 200ms는 폴링 간격이다. "N초 후면 됐을 것"이라는 대기가 아니다.
 function Wait-UnityState {
     param(
         [string[]]$Want,
@@ -170,6 +193,7 @@ function Wait-UnityState {
 }
 
 try {
+    # CLI와 Connector는 같은 버전이어야 한다. 숫자는 여기 박지 않고 package.json을 따른다.
     $pkgPath = Join-Path $RepoRoot "unity-connector\package.json"
     $version = (Get-Content -Raw $pkgPath | ConvertFrom-Json).version
     if (-not $version) { throw "connector version missing in package.json" }
@@ -180,6 +204,7 @@ try {
     if ($LASTEXITCODE -ne 0) { throw "go build failed" }
     Pop-Location
 
+    # 이후 케이스는 Unity가 살아 있어야 한다. 없으면 여기서 끝낸다.
     Write-Case "status (Unity must be running)"
     $r = Invoke-Cli -CliArgs @("status")
     Write-Host $r.Stdout
@@ -194,11 +219,13 @@ try {
         Fail "list missing tools: exit $($r.ExitCode) $($r.Stdout)"
     }
 
+    # 한 번 보내면 응답 하나. 1+1이 그대로 와야 한다.
     Write-Case "exec once"
     $r = Invoke-CliStdin -CliArgs @("exec") -Code 'return (1+1).ToString();'
     if ($r.ExitCode -eq 0 -and $r.Stdout.Trim() -eq "2") { Pass "2" }
     else { Fail "exec 1+1 => exit $($r.ExitCode) out='$($r.Stdout)' err='$($r.Stderr)'" }
 
+    # async/deferred 코드는 Unity에 넣기 전에 CLI가 막는다.
     Write-Case "async exec is blocked"
     $r = Invoke-CliStdin -CliArgs @("exec") -Code 'await Task.Delay(1); return "no";'
     if ($r.ExitCode -ne 0 -and "$($r.Stderr)$($r.Stdout)" -match "allow-async") { Pass "blocked without --allow-async" }
@@ -221,6 +248,7 @@ try {
     }
     if ($ok) { Pass "seq-1 .. seq-5" }
 
+    # 세 프로세스를 거의 동시에 띄운다. Connector가 직렬로 처리해도 답은 A,B,C 모두 와야 한다.
     Write-Case "three overlapping execs (same moment)"
     $jobs = @(
         (Start-CliJob -CliArgs @("exec") -Code 'return "A";'),
@@ -237,6 +265,7 @@ try {
         $results | ForEach-Object { Write-Host ("  " + $_.ExitCode + " " + $_.Stdout + " " + $_.Stderr) }
     }
 
+    # slow가 메인 스레드를 $SlowMs 동안 붙잡는다. fast가 그보다 빨리 끝나면 겹쳐서 샌 것이다.
     Write-Case "slow + fast overlapping (main-thread serialize)"
     $slowCode = @"
 var until = System.DateTime.UtcNow.AddMilliseconds($SlowMs);
@@ -254,6 +283,7 @@ return "slow";
         Fail "slow='$($slowR.Stdout)'/$($slowR.ExitCode)/$($slowR.Ms)ms fast='$($fastR.Stdout)'/$($fastR.ExitCode)/$($fastR.Ms)ms"
     }
 
+    # 같은 명령 두 번도 각각 한 응답. 한쪽이 드롭되거나 재사용되면 안 된다.
     Write-Case "duplicate identical execs in parallel"
     $d1 = Start-CliJob -CliArgs @("exec") -Code 'return "dup";'
     $d2 = Start-CliJob -CliArgs @("exec") -Code 'return "dup";'
@@ -280,6 +310,7 @@ return "slow";
     if ($r.ExitCode -eq 0 -and "$($r.Stdout)$($r.Stderr)" -match "Console") { Pass "Window/General/Console" }
     else { Fail "menu: exit $($r.ExitCode) $($r.Stdout) $($r.Stderr)" }
 
+    # 프로젝트 Screenshots/에 남기지 않고 임시 폴더에 작은 PNG만 쓴다.
     Write-Case "screenshot to temp"
     $shot = (Join-Path $WorkDir "shot.png").Replace("\", "/")
     $r = Invoke-Cli -CliArgs @("screenshot", "--width", "64", "--height", "64", "--output_path", $shot)
@@ -300,16 +331,20 @@ return "slow";
         Fail "enable='$($on.Stdout)' disable='$($off.Stdout)'"
     }
 
+    # --compile은 안 넣는다. 에셋 리프레시만 요청한다.
     Write-Case "editor refresh"
     $r = Invoke-Cli -CliArgs @("editor", "refresh")
     if ($r.ExitCode -eq 0) { Pass "refresh" }
     else { Fail "refresh: $($r.Stderr)" }
 
+    # 전체 테스트 스위트가 아니라 러너가 살아 있는지만 본다.
     Write-Case "test --filter with no matches"
     $r = Invoke-Cli -CliArgs @("test", "--filter", "UnityCliLiveTestDoesNotExist")
     if ($r.ExitCode -eq 0 -and $r.Stdout -match '"total"\s*:\s*0') { Pass "runner returned 0 tests" }
     else { Fail "test filter: exit $($r.ExitCode) $($r.Stdout) $($r.Stderr)" }
 
+    # play --wait는 HTTP를 붙잡지 않고 heartbeat가 playing이 될 때까지 폴링한다.
+    # 끝난 뒤 status/exec로 다시 읽고, pause → hierarchy → stop도 같은 식으로 확인한다.
     Write-Case "play --wait, pause, hierarchy, stop"
     $play = Invoke-Cli -CliArgs @("editor", "play", "--wait")
     if ($play.ExitCode -ne 0) {
@@ -318,6 +353,7 @@ return "slow";
         $playState = Wait-UnityState -Want @("playing", "paused")
         $playing = Invoke-CliStdin -CliArgs @("exec") -Code 'return EditorApplication.isPlaying.ToString();'
         Invoke-Cli -CliArgs @("profiler", "enable") | Out-Null
+        # play 직후 프레임이 없을 수 있다. hierarchy 데이터가 올 때까지 다시 요청한다.
         $hier = $null
         $hierDeadline = [datetime]::UtcNow.AddMilliseconds([Math]::Min($TimeoutMs, 30000))
         while ([datetime]::UtcNow -lt $hierDeadline) {
@@ -345,6 +381,7 @@ return "slow";
     }
 }
 finally {
+    # 중간 실패로 play/profiler가 켜져 있을 수 있다. 다음 실행을 위해 되돌린다.
     if (Test-Path $Cli) {
         Invoke-Cli -CliArgs @("editor", "stop") | Out-Null
         Invoke-Cli -CliArgs @("profiler", "disable") | Out-Null
