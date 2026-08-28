@@ -140,6 +140,17 @@ Unity 커넥터의 동작:
 
 컴파일이나 리로드 직전에 상태(`compiling`, `reloading`)를 instance 파일에 기록합니다. `/command`는 상태가 `ready`, `playing`, `paused`일 때만 접수하고, 아니면 CLI가 `--timeout`까지 기다렸다가 다시 넣습니다.
 
+## 실제 동작 테스트
+
+Unity Editor가 켜져 있을 때:
+
+```powershell
+powershell -File scripts/live-test.ps1
+powershell -File scripts/live-test.ps1 -Project C:/path/to/unity-project
+```
+
+현재 소스 CLI를 빌드한 뒤 실제 명령을 보냅니다. 연속 exec, 겹치는 요청, play/stop을 확인합니다.
+
 ## 내장 명령어
 
 | 명령어 | 설명 |

@@ -41,16 +41,16 @@ gofmt -w .
 go test ./...
 ```
 
-### Integration Tests (requires Unity)
+### Live tests (requires Unity)
 
-Integration tests are tagged with `//go:build integration` and excluded from the default test run.
-Run them manually when Unity Editor is open:
+Unity Editor가 켜져 있을 때 실제 CLI 요청으로 확인한다:
 
-```bash
-go test -tags integration ./...
+```powershell
+powershell -File scripts/live-test.ps1
+powershell -File scripts/live-test.ps1 -Project C:/path/to/unity-project
 ```
 
-CI skips these since Unity is not available.
+CI는 Unity가 없어서 건너뛴다.
 
 ## Checklist
 

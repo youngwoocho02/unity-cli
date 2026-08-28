@@ -140,6 +140,17 @@ The Unity Connector:
 
 Before compiling or reloading, the Connector records the state (`compiling`, `reloading`) to the instance file. `/command` is accepted only when state is `ready`, `playing`, or `paused`. Otherwise the CLI waits and tries again until `--timeout`.
 
+## Live tests
+
+With Unity Editor open:
+
+```powershell
+powershell -File scripts/live-test.ps1
+powershell -File scripts/live-test.ps1 -Project C:/path/to/unity-project
+```
+
+Builds the current CLI and sends real commands: sequential exec, overlapping requests, play/stop.
+
 ## Built-in Commands
 
 | Command | Description |
