@@ -149,7 +149,7 @@ powershell -File scripts/live-test.ps1
 powershell -File scripts/live-test.ps1 -Project C:/path/to/unity-project
 ```
 
-Builds the current CLI and sends real commands: sequential exec, overlapping requests, play/stop.
+Builds the current CLI and sends real commands: sequential and overlapping exec, serialization, console/menu/screenshot/profiler, play/pause/stop. Does not trigger a full script recompile.
 
 ## Built-in Commands
 

@@ -149,7 +149,7 @@ powershell -File scripts/live-test.ps1
 powershell -File scripts/live-test.ps1 -Project C:/path/to/unity-project
 ```
 
-현재 소스 CLI를 빌드한 뒤 실제 명령을 보냅니다. 연속 exec, 겹치는 요청, play/stop을 확인합니다.
+현재 소스 CLI를 빌드한 뒤 실제 명령을 보냅니다. 연속/겹치는 exec, 직렬화, console/menu/screenshot/profiler, play/pause/stop을 확인합니다. 전체 스크립트 재컴파일은 걸지 않습니다.
 
 ## 내장 명령어
 
