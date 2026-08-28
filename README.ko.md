@@ -149,7 +149,7 @@ powershell -File scripts/live-test.ps1
 powershell -File scripts/live-test.ps1 -Project C:/path/to/unity-project
 ```
 
-현재 소스 CLI를 빌드한 뒤 실제 명령을 보냅니다. 연속/겹치는 exec, 직렬화, console/menu/screenshot/profiler, play/pause/stop을 확인합니다. 전체 스크립트 재컴파일은 걸지 않습니다.
+현재 소스 CLI를 빌드한 뒤 내장 명령을 모두 보냅니다. exec(async 정책 포함), 겹침/직렬화, console 필터, menu(File/Quit 차단), scene/game 스크린샷, profiler, play/pause/stop/refresh, manage_editor tag/layer/tool, 임시 에셋 하나 reserialize, 빈 EditMode/PlayMode 테스트를 확인합니다. 프로젝트 전체 재컴파일이나 전체 reserialize는 하지 않습니다.
 
 ## 내장 명령어
 

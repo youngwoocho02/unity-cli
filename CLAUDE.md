@@ -43,7 +43,7 @@ go test ./...
 
 ### Live tests (requires Unity)
 
-Unity Editor가 켜져 있을 때 실제 CLI 요청으로 확인한다:
+Unity Editor가 켜져 있을 때 `scripts/live-test.ps1` 한 번으로 내장 명령을 모두 확인한다:
 
 ```powershell
 powershell -File scripts/live-test.ps1

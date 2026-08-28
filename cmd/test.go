@@ -87,8 +87,15 @@ func newTestRunID() string {
 	return fmt.Sprintf("%d-%d", os.Getpid(), time.Now().UnixNano())
 }
 
-// pollTestResults는 ~/.unity-cli/status/test-results-<id>.json이 생길 때까지 최대 10분 기다린다.
-// 에디터가 꺼지면 바로 실패한다.
+// PlayMode 결과 파일 대기. 테스트에서 timeout/grace를 줄여 바로 끝나게 한다.
+var (
+	testResultsPollTimeout = 10 * time.Minute
+	// 도메인 리로드 동안 heartbeat가 잠깐 사라진다. 이 시간 안은 종료로 보지 않는다.
+	testResultsGoneGrace = 30 * time.Second
+)
+
+// pollTestResults는 ~/.unity-cli/status/test-results-<id>.json이 생길 때까지 기다린다.
+// resolve 실패는 리로드일 수 있어 goneGrace 동안은 계속 폴링한다. 초를 짐작해 끝내지 않는다.
 func pollTestResults(runID string, resolve instanceResolver) (*client.CommandResponse, error) {
 	home, err := os.UserHomeDir()
 	if err != nil {
@@ -96,10 +103,11 @@ func pollTestResults(runID string, resolve instanceResolver) (*client.CommandRes
 	}
 
 	resultsPath := filepath.Join(home, ".unity-cli", "status", fmt.Sprintf("test-results-%s.json", runID))
-	deadline := time.Now().Add(10 * time.Minute)
+	deadline := time.Now().Add(testResultsPollTimeout)
+	var goneSince time.Time
 
 	for time.Now().Before(deadline) {
-		time.Sleep(500 * time.Millisecond)
+		time.Sleep(statusPollInterval)
 
 		data, err := os.ReadFile(resultsPath)
 		if err == nil {
@@ -115,11 +123,19 @@ func pollTestResults(runID string, resolve instanceResolver) (*client.CommandRes
 			if _, err := resolve(); err != nil {
 				msg := err.Error()
 				if strings.Contains(msg, "no Unity instances running") || strings.Contains(msg, "no Unity instance found for project") {
-					return nil, fmt.Errorf("unity editor has stopped")
+					if goneSince.IsZero() {
+						goneSince = time.Now()
+					}
+					if testResultsGoneGrace == 0 || time.Since(goneSince) >= testResultsGoneGrace {
+						return nil, fmt.Errorf("unity editor has stopped")
+					}
+					continue
 				}
+			} else {
+				goneSince = time.Time{}
 			}
 		}
 	}
 
-	return nil, fmt.Errorf("timed out waiting for test results (10m)")
+	return nil, fmt.Errorf("timed out waiting for test results (%s)", testResultsPollTimeout)
 }

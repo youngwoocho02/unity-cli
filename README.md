@@ -149,7 +149,7 @@ powershell -File scripts/live-test.ps1
 powershell -File scripts/live-test.ps1 -Project C:/path/to/unity-project
 ```
 
-Builds the current CLI and sends real commands: sequential and overlapping exec, serialization, console/menu/screenshot/profiler, play/pause/stop. Does not trigger a full script recompile.
+Builds the current CLI and sends every built-in command against a running Editor: exec (including async policy), overlapping/serialized requests, console filters, menu (including File/Quit block), scene/game screenshots, profiler, play/pause/stop/refresh, manage_editor tag/layer/tool, one-asset reserialize, and empty EditMode/PlayMode test runs. Does not trigger a full script recompile or reserialize the whole project.
 
 ## Built-in Commands
 
