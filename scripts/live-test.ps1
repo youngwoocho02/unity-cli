@@ -352,6 +352,13 @@ return "slow";
     } else {
         $playState = Wait-UnityState -Want @("playing", "paused")
         $playing = Invoke-CliStdin -CliArgs @("exec") -Code 'return EditorApplication.isPlaying.ToString();'
+        # play 중 Game 뷰는 Overlay UI까지 들어가야 한다. ScreenCapture가 파일을 쓸 때까지 기다린다.
+        $gameShot = (Join-Path $WorkDir "game.png").Replace("\", "/")
+        $game = Invoke-Cli -CliArgs @("screenshot", "--view", "game", "--output_path", $gameShot)
+        if ($game.ExitCode -ne 0 -or -not (Test-Path $gameShot) -or ((Get-Item $gameShot).Length -le 0)) {
+            Fail "game screenshot: exit $($game.ExitCode) $($game.Stdout) $($game.Stderr)"
+        }
+
         Invoke-Cli -CliArgs @("profiler", "enable") | Out-Null
         # play 직후 프레임이 없을 수 있다. hierarchy 데이터가 올 때까지 다시 요청한다.
         $hier = $null
@@ -370,6 +377,7 @@ return "slow";
         $dis = Invoke-Cli -CliArgs @("profiler", "disable")
 
         if ($playState -match 'playing|paused' -and $playing.Stdout.Trim() -eq "True" `
+            -and $game.ExitCode -eq 0 -and (Test-Path $gameShot) `
             -and $hier.ExitCode -eq 0 -and $hier.Stdout `
             -and $pause.ExitCode -eq 0 -and $pausedState -eq "paused" -and $paused.Stdout.Trim() -eq "True" `
             -and $stop.ExitCode -eq 0 -and $readyState -eq "ready" -and $after.Stdout.Trim() -eq "False" `

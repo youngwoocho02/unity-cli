@@ -682,10 +682,13 @@ Capture a screenshot of the Unity editor.
 
 Options:
   --view <mode>      scene (default), game
-  --width <N>        Image width in pixels (default: 1920)
-  --height <N>       Image height in pixels (default: 1080)
+  --width <N>        Scene view width (default: 1920). Ignored for game view.
+  --height <N>       Scene view height (default: 1080). Ignored for game view.
   --output_path <path>  Output path, absolute or relative to project root
                         (default: Screenshots/screenshot.png)
+
+Game view captures the composited Game view, including Screen Space - Overlay UI.
+Width/height do not apply; the file is the Game view's native resolution.
 
 Examples:
   unity-cli screenshot
